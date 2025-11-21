@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice & Quote Generator</title>
+    <title>Invoice, Quote & Work Order System</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -71,6 +71,7 @@
         const FileCheck = (props) => <Icon d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M10 13l2 2 4-4" {...props} />;
         const ArrowRight = (props) => <Icon d="M5 12h14M12 5l7 7-7 7" {...props} />;
         const FilePlus = (props) => <Icon d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M12 11v6 M9 14h6" {...props} />;
+        const Clipboard = (props) => <Icon d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" {...props} />;
 
 
         // --- Firebase Config ---
@@ -104,8 +105,8 @@
             const [showResults, setShowResults] = useState(false);
             const csvInputRef = useRef(null);
 
-            // --- Invoice/Quote Mode State ---
-            const [docType, setDocType] = useState('invoice'); // 'invoice' or 'quote'
+            // --- Document Type State: 'invoice', 'quote', 'work_order' ---
+            const [docType, setDocType] = useState('invoice'); 
 
             // --- Invoice Data State ---
             const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().substr(0, 10));
@@ -138,19 +139,42 @@
             const total = subtotal + tax;
 
             // --- Text Constants based on Mode ---
-            const TEXTS = {
-                title: docType === 'invoice' ? 'SERVICE INVOICE' : 'PROPOSAL / QUOTE',
-                dateLabel: docType === 'invoice' ? 'DATE' : 'QUOTE DATE',
-                woLabel: docType === 'invoice' ? 'WO #' : 'REF #',
-                ackTitle: docType === 'invoice' ? 'WORK ACKNOWLEDGMENT' : 'PROPOSAL ACCEPTANCE',
-                ackBody: docType === 'invoice' 
-                    ? "I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense. Any damage from said removal shall not be the responsibility of seller."
-                    : "The above prices, specifications, and conditions are satisfactory and are hereby accepted. You are authorized to do the work as specified. Payment will be made as outlined above.",
-                warrantyTitle: docType === 'invoice' ? 'Limited Warranty in Fine Print' : 'Proposal Terms & Conditions',
-                warrantyBody: docType === 'invoice'
-                    ? "Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any materials or services installed previously or after services covered on this invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided, as well as, for services provided as a courtesy to the client (not charged or paid for). Mechanical Temp is not responsible for any failures or damages due to Acts of God, other individuals, or other companies performing work on the service area."
-                    : "This proposal may be withdrawn by us if not accepted within 30 days. All work to be completed in a workmanlike manner according to standard practices. Any alteration or deviation from above specifications involving extra costs will be executed only upon written orders, and will become an extra charge over and above the estimate. All agreements contingent upon strikes, accidents or delays beyond our control. Owner to carry fire, tornado and other necessary insurance."
+            const getTexts = () => {
+                switch(docType) {
+                    case 'quote':
+                        return {
+                            title: 'PROPOSAL / QUOTE',
+                            dateLabel: 'QUOTE DATE',
+                            woLabel: 'REF #',
+                            ackTitle: 'PROPOSAL ACCEPTANCE',
+                            ackBody: "The above prices, specifications, and conditions are satisfactory and are hereby accepted. You are authorized to do the work as specified. Payment will be made as outlined above.",
+                            warrantyTitle: 'Proposal Terms & Conditions',
+                            warrantyBody: "This proposal may be withdrawn by us if not accepted within 30 days. All work to be completed in a workmanlike manner according to standard practices. Any alteration or deviation from above specifications involving extra costs will be executed only upon written orders, and will become an extra charge over and above the estimate."
+                        };
+                    case 'work_order':
+                        return {
+                            title: 'SERVICE WORK ORDER',
+                            dateLabel: 'DATE',
+                            woLabel: 'WO #',
+                            ackTitle: 'WORK ACKNOWLEDGMENT',
+                            ackBody: "I certify that the work described above has been performed to my satisfaction. This is a summary of services performed and does not represent the final invoice.",
+                            warrantyTitle: 'Service Report Details',
+                            warrantyBody: "This document serves as a record of work performed, materials used, and technician notes. Final billing will be processed separately based on the terms of service. Warranty coverage is subject to the final invoice terms."
+                        };
+                    default: // invoice
+                        return {
+                            title: 'SERVICE INVOICE',
+                            dateLabel: 'DATE',
+                            woLabel: 'WO #',
+                            ackTitle: 'WORK ACKNOWLEDGMENT',
+                            ackBody: "I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense.",
+                            warrantyTitle: 'Limited Warranty in Fine Print',
+                            warrantyBody: "Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided."
+                        };
+                }
             };
+
+            const TEXTS = getTexts();
 
             // --- Effects ---
             useEffect(() => {
@@ -283,17 +307,11 @@
             };
 
             // --- Link/Convert Handler ---
-            const handleConvertToInvoice = () => {
-                if (confirm("Create Invoice from this Quote? \n\nThis will switch to Invoice mode and update the date to today. All information will be preserved.")) {
-                    setDocType('invoice');
-                    setInvoiceDate(new Date().toISOString().substr(0, 10)); // Update date to today
-                }
-            };
-
-            const handleConvertToQuote = () => {
-                if (confirm("Create Quote from this Invoice? \n\nThis will switch to Quote mode and update the date to today. All information (customer, unit, etc.) will be preserved.")) {
-                    setDocType('quote');
-                    setInvoiceDate(new Date().toISOString().substr(0, 10)); // Update date to today
+            const handleConvert = (newType) => {
+                const nameMap = { invoice: 'Invoice', quote: 'Quote', work_order: 'Work Order' };
+                if (confirm(`Convert this to a ${nameMap[newType]}? \n\nThis will switch modes. All information will be preserved.`)) {
+                    setDocType(newType);
+                    setInvoiceDate(new Date().toISOString().substr(0, 10));
                 }
             };
 
@@ -338,49 +356,62 @@
                     <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                         <div>
                             <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                {docType === 'invoice' ? 'Invoice Generator' : 'Quote Generator'}
+                                {docType === 'invoice' ? 'Invoice Generator' : docType === 'quote' ? 'Quote Generator' : 'Work Order System'}
                             </h1>
                             {user && <p className="text-xs text-gray-500 flex items-center gap-1"><User size={10}/> {user.email}</p>}
                         </div>
 
                         {/* MODE SWITCHER */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col items-end gap-2">
                             <div className="flex bg-gray-100 p-1 rounded-lg">
                                 <button 
                                     onClick={() => setDocType('invoice')}
-                                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${docType === 'invoice' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${docType === 'invoice' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
                                 >
                                     INVOICE
                                 </button>
                                 <button 
                                     onClick={() => setDocType('quote')}
-                                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${docType === 'quote' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${docType === 'quote' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
                                 >
                                     QUOTE
                                 </button>
+                                <button 
+                                    onClick={() => setDocType('work_order')}
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${docType === 'work_order' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
+                                >
+                                    WORK ORDER
+                                </button>
                             </div>
                             
-                            {/* CONVERT BUTTON (Quote -> Invoice) */}
-                            {docType === 'quote' && (
-                                <button 
-                                    onClick={handleConvertToInvoice}
-                                    className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded text-xs transition-colors shadow-sm font-bold"
-                                    title="Convert this Quote to an Invoice"
-                                >
-                                    <ArrowRight size={14} /> Make Invoice
-                                </button>
-                            )}
-
-                            {/* CONVERT BUTTON (Invoice -> Quote) */}
-                            {docType === 'invoice' && (
-                                <button 
-                                    onClick={handleConvertToQuote}
-                                    className="flex items-center gap-2 bg-purple-500 hover:bg-purple-600 text-white px-3 py-1.5 rounded text-xs transition-colors shadow-sm font-bold"
-                                    title="Create a Quote from this Invoice"
-                                >
-                                    <FilePlus size={14} /> Make Quote
-                                </button>
-                            )}
+                            {/* CONVERSION BUTTONS */}
+                            <div className="flex gap-2">
+                                {docType === 'quote' && (
+                                    <button onClick={() => handleConvert('invoice')} className="flex items-center gap-1 bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 rounded text-xs font-bold shadow-sm">
+                                        <ArrowRight size={12} /> To Invoice
+                                    </button>
+                                )}
+                                {docType === 'invoice' && (
+                                    <>
+                                        <button onClick={() => handleConvert('quote')} className="flex items-center gap-1 bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs font-bold shadow-sm">
+                                            <FilePlus size={12} /> To Quote
+                                        </button>
+                                        <button onClick={() => handleConvert('work_order')} className="flex items-center gap-1 bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs font-bold shadow-sm">
+                                            <Clipboard size={12} /> To Work Order
+                                        </button>
+                                    </>
+                                )}
+                                {docType === 'work_order' && (
+                                    <>
+                                        <button onClick={() => handleConvert('quote')} className="flex items-center gap-1 bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs font-bold shadow-sm">
+                                            <FilePlus size={12} /> Create Quote
+                                        </button>
+                                        <button onClick={() => handleConvert('invoice')} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs font-bold shadow-sm">
+                                            <ArrowRight size={12} /> Create Invoice
+                                        </button>
+                                    </>
+                                )}
+                            </div>
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
@@ -596,7 +627,7 @@
                     {/* Description */}
                     <div className="mb-4 border border-black">
                         <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">
-                            {docType === 'invoice' ? 'DESCRIPTION OF WORK' : 'SCOPE OF WORK / PROPOSAL DETAILS'}
+                            {docType === 'invoice' ? 'DESCRIPTION OF WORK' : docType === 'quote' ? 'SCOPE OF WORK / PROPOSAL DETAILS' : 'SERVICE PERFORMED / FINDINGS'}
                         </div>
                         <textarea value={descriptionOfWork} onChange={(e) => setDescriptionOfWork(e.target.value)} className="w-full h-32 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-y" />
                     </div>
@@ -606,16 +637,24 @@
                         <div className="flex bg-gray-200 text-xs font-bold border border-black print:bg-gray-100">
                             <div className="w-16 p-1 border-r border-black text-center">QTY</div>
                             <div className="flex-1 p-1 border-r border-black">DESCRIPTION</div>
-                            <div className="w-24 p-1 text-right border-r border-black">PRICE</div>
-                            <div className="w-24 p-1 text-right">AMOUNT</div>
+                            {docType !== 'work_order' && (
+                                <>
+                                    <div className="w-24 p-1 text-right border-r border-black">PRICE</div>
+                                    <div className="w-24 p-1 text-right">AMOUNT</div>
+                                </>
+                            )}
                             <div className="w-8 no-print"></div>
                         </div>
                         {items.map((item) => (
                             <div key={item.id} className="flex border-b border-l border-r border-black text-sm">
                             <input type="number" value={item.qty} onChange={(e) => handleItemChange(item.id, 'qty', parseFloat(e.target.value) || 0)} className="w-16 p-1 border-r border-black text-center bg-blue-50 print:bg-transparent outline-none" />
-                            <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="flex-1 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-                            <input type="number" value={item.price} onChange={(e) => handleItemChange(item.id, 'price', parseFloat(e.target.value) || 0)} className="w-24 p-1 border-r border-black text-right bg-blue-50 print:bg-transparent outline-none" />
-                            <div className="w-24 p-1 text-right bg-gray-50 print:bg-transparent">{ (item.qty * item.price).toFixed(2) }</div>
+                            <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className={`flex-1 p-1 ${docType !== 'work_order' ? 'border-r border-black' : ''} bg-blue-50 print:bg-transparent outline-none`} />
+                            {docType !== 'work_order' && (
+                                <>
+                                    <input type="number" value={item.price} onChange={(e) => handleItemChange(item.id, 'price', parseFloat(e.target.value) || 0)} className="w-24 p-1 border-r border-black text-right bg-blue-50 print:bg-transparent outline-none" />
+                                    <div className="w-24 p-1 text-right bg-gray-50 print:bg-transparent">{ (item.qty * item.price).toFixed(2) }</div>
+                                </>
+                            )}
                             <div className="w-8 flex items-center justify-center no-print">
                                 <button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-700"><Trash2 size={14} /></button>
                             </div>
@@ -624,19 +663,29 @@
                         <button onClick={addItem} className="mt-2 flex items-center gap-1 text-blue-600 text-xs font-bold hover:underline no-print"><Plus size={14} /> Add Item</button>
                     </div>
 
-                    {/* Totals */}
-                    <div className="flex mb-4 gap-4 print-break-inside-avoid">
-                        <div className="flex-1 border border-black flex flex-col">
+                    {/* Totals - HIDDEN IN WORK ORDER MODE */}
+                    {docType !== 'work_order' && (
+                        <div className="flex mb-4 gap-4 print-break-inside-avoid">
+                            <div className="flex-1 border border-black flex flex-col">
+                                <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">RECOMMENDATIONS</div>
+                                <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full flex-1 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-y" />
+                            </div>
+                            <div className="w-64 border border-black text-sm">
+                                <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">SUBTOTAL</span><span>${subtotal.toFixed(2)}</span></div>
+                                <div className="flex justify-between p-2 border-b border-black bg-gray-50 print:bg-transparent"><span className="font-bold">TAX RATE</span><input type="number" step="0.01" value={taxRate} onChange={(e) => setTaxRate(parseFloat(e.target.value))} className="w-12 text-right bg-blue-50 print:bg-transparent outline-none" /></div>
+                                <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">TAX</span><span>${tax.toFixed(2)}</span></div>
+                                <div className="flex justify-between p-2 font-bold bg-gray-200 print:bg-gray-100"><span>TOTAL</span><span>${total.toFixed(2)}</span></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Work Order Recommendations (Full Width) */}
+                    {docType === 'work_order' && (
+                        <div className="mb-4 border border-black flex flex-col print-break-inside-avoid">
                             <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">RECOMMENDATIONS</div>
-                            <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full flex-1 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-y" />
+                            <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full h-24 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-y" />
                         </div>
-                        <div className="w-64 border border-black text-sm">
-                            <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">SUBTOTAL</span><span>${subtotal.toFixed(2)}</span></div>
-                            <div className="flex justify-between p-2 border-b border-black bg-gray-50 print:bg-transparent"><span className="font-bold">TAX RATE</span><input type="number" step="0.01" value={taxRate} onChange={(e) => setTaxRate(parseFloat(e.target.value))} className="w-12 text-right bg-blue-50 print:bg-transparent outline-none" /></div>
-                            <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">TAX</span><span>${tax.toFixed(2)}</span></div>
-                            <div className="flex justify-between p-2 font-bold bg-gray-200 print:bg-gray-100"><span>TOTAL</span><span>${total.toFixed(2)}</span></div>
-                        </div>
-                    </div>
+                    )}
 
                     {/* Attachments */}
                     <div className="mb-6 border border-black p-2 print-break-inside-avoid">
