@@ -116,7 +116,7 @@
             const csvInputRef = useRef(null);
 
             // --- Document State ---
-            const [invoiceId, setInvoiceId] = useState(null); // ID of current doc (null = new)
+            const [invoiceId, setInvoiceId] = useState(null); 
             const [docType, setDocType] = useState('invoice'); 
 
             // --- Invoice Data State ---
@@ -149,60 +149,7 @@
             const tax = subtotal * taxRate;
             const total = subtotal + tax;
 
-            // --- Text Constants ---
-            const getTexts = () => {
-                switch(docType) {
-                    case 'quote':
-                        return {
-                            title: 'PROPOSAL / QUOTE',
-                            dateLabel: 'QUOTE DATE',
-                            woLabel: 'REF #',
-                            ackTitle: 'PROPOSAL ACCEPTANCE',
-                            ackBody: "The above prices, specifications, and conditions are satisfactory and are hereby accepted. You are authorized to do the work as specified. Payment will be made as outlined above.",
-                            warrantyTitle: 'Proposal Terms & Conditions',
-                            warrantyBody: "This proposal may be withdrawn by us if not accepted within 30 days. All work to be completed in a workmanlike manner according to standard practices. Any alteration or deviation from above specifications involving extra costs will be executed only upon written orders, and will become an extra charge over and above the estimate."
-                        };
-                    case 'work_order':
-                        return {
-                            title: 'SERVICE WORK ORDER',
-                            dateLabel: 'DATE',
-                            woLabel: 'WO #',
-                            ackTitle: 'WORK ACKNOWLEDGMENT',
-                            ackBody: "I certify that the work described above has been performed to my satisfaction. This is a summary of services performed and does not represent the final invoice.",
-                            warrantyTitle: 'Service Report Details',
-                            warrantyBody: "This document serves as a record of work performed, materials used, and technician notes. Final billing will be processed separately based on the terms of service. Warranty coverage is subject to the final invoice terms."
-                        };
-                    default: // invoice
-                        return {
-                            title: 'SERVICE INVOICE',
-                            dateLabel: 'DATE',
-                            woLabel: 'WO #',
-                            ackTitle: 'WORK ACKNOWLEDGMENT',
-                            ackBody: "I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense.",
-                            warrantyTitle: 'Limited Warranty in Fine Print',
-                            warrantyBody: "Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided."
-                        };
-                }
-            };
-
-            const TEXTS = getTexts();
-
-            // --- Effects ---
-            useEffect(() => {
-                const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-                    setUser(currentUser);
-                    setLoading(false);
-                    if (currentUser) {
-                        await loadInvoiceData(currentUser.uid);
-                        await loadCustomerDB(currentUser.uid); 
-                        await fetchSavedInvoices(currentUser.uid);
-                    }
-                });
-                return () => unsubscribe();
-            }, []);
-
-            // --- HISTORY & SAVING LOGIC ---
-            
+            // --- DEFINED BEFORE useEffect TO FIX REFERENCE ERROR ---
             const fetchSavedInvoices = async (uid) => {
                 try {
                     const q = query(collection(db, 'artifacts', APP_ID, 'users', uid, 'invoices'), orderBy('lastUpdated', 'desc'));
@@ -212,6 +159,43 @@
                 } catch (error) { console.error("Error fetching history:", error); }
             };
 
+            const loadCustomerDB = async (uid) => {
+                try {
+                    const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'customer_db');
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) { 
+                        const list = docSnap.data().list || [];
+                        const hydratedList = list.map(item => ({
+                            ...item,
+                            searchStr: `${item.name} ${item.locationName} ${item.address} ${item.jobNo}`.toLowerCase()
+                        }));
+                        setCustomerDB(hydratedList); 
+                    }
+                } catch (error) { console.error("Error loading DB:", error); }
+            };
+
+            // This was causing the ReferenceError - defined here now
+            const loadInvoiceData = async (uid) => {
+                try {
+                    // Optional: Load "current_invoice" draft if you want auto-restore
+                    // For now, we just rely on History
+                } catch (error) { console.error(error); }
+            };
+
+            // --- Effects ---
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+                    setUser(currentUser);
+                    setLoading(false);
+                    if (currentUser) {
+                        await loadCustomerDB(currentUser.uid); 
+                        await fetchSavedInvoices(currentUser.uid);
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            // --- HISTORY & SAVING LOGIC ---
             const loadInvoiceFromHistory = (docData, docId) => {
                 setInvoiceId(docId); 
                 setDocType(docData.docType || 'invoice');
@@ -282,7 +266,7 @@
                 }
             };
 
-            // --- Database Logic (CSV) - OPTIMIZED ---
+            // --- Database Logic (CSV) ---
             const handleCSVUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -297,7 +281,6 @@
                             locationName: row['Customer'] || '',
                             address: row['Service Address'] || '',
                             jobNo: row['Job No.'] || '',
-                            // Keep searchStr IN MEMORY but we will strip it before saving to DB
                             searchStr: `${row['Bill To']} ${row['Customer']} ${row['Service Address']} ${row['Job No.']}`.toLowerCase()
                         })).filter(item => item.name || item.address);
 
@@ -319,32 +302,13 @@
 
             const saveCustomerDB = async (data, uid) => {
                 try {
-                    // OPTIMIZATION: Strip 'searchStr' to save 50% space in Cloud Firestore
-                    // Firestore has a 1MB limit per document.
                     const optimizedData = data.map(({ searchStr, ...rest }) => rest);
-
                     const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'customer_db');
                     await setDoc(docRef, { list: optimizedData, lastUpdated: new Date().toISOString() });
                 } catch (error) { 
                     console.error("Error saving DB:", error);
                     alert("Error saving database to cloud: " + error.message);
                 }
-            };
-
-            const loadCustomerDB = async (uid) => {
-                try {
-                    const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'customer_db');
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) { 
-                        const list = docSnap.data().list || [];
-                        // RE-HYDRATE: Re-create searchStr on load so searching works
-                        const hydratedList = list.map(item => ({
-                            ...item,
-                            searchStr: `${item.name} ${item.locationName} ${item.address} ${item.jobNo}`.toLowerCase()
-                        }));
-                        setCustomerDB(hydratedList); 
-                    }
-                } catch (error) { console.error("Error loading DB:", error); }
             };
 
             const handleSearchResultClick = (record) => {
@@ -390,6 +354,43 @@
                 if(fileInputRef.current) fileInputRef.current.value = '';
             };
             const removeAttachment = (id) => setAttachments(prev => prev.filter(att => att.id !== id));
+
+            // --- Text Constants ---
+            const getTexts = () => {
+                switch(docType) {
+                    case 'quote':
+                        return {
+                            title: 'PROPOSAL / QUOTE',
+                            dateLabel: 'QUOTE DATE',
+                            woLabel: 'REF #',
+                            ackTitle: 'PROPOSAL ACCEPTANCE',
+                            ackBody: "The above prices, specifications, and conditions are satisfactory and are hereby accepted. You are authorized to do the work as specified. Payment will be made as outlined above.",
+                            warrantyTitle: 'Proposal Terms & Conditions',
+                            warrantyBody: "This proposal may be withdrawn by us if not accepted within 30 days. All work to be completed in a workmanlike manner according to standard practices. Any alteration or deviation from above specifications involving extra costs will be executed only upon written orders, and will become an extra charge over and above the estimate."
+                        };
+                    case 'work_order':
+                        return {
+                            title: 'SERVICE WORK ORDER',
+                            dateLabel: 'DATE',
+                            woLabel: 'WO #',
+                            ackTitle: 'WORK ACKNOWLEDGMENT',
+                            ackBody: "I certify that the work described above has been performed to my satisfaction. This is a summary of services performed and does not represent the final invoice.",
+                            warrantyTitle: 'Service Report Details',
+                            warrantyBody: "This document serves as a record of work performed, materials used, and technician notes. Final billing will be processed separately based on the terms of service. Warranty coverage is subject to the final invoice terms."
+                        };
+                    default: // invoice
+                        return {
+                            title: 'SERVICE INVOICE',
+                            dateLabel: 'DATE',
+                            woLabel: 'WO #',
+                            ackTitle: 'WORK ACKNOWLEDGMENT',
+                            ackBody: "I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense.",
+                            warrantyTitle: 'Limited Warranty in Fine Print',
+                            warrantyBody: "Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any materials or services installed previously or after services covered on this invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided."
+                        };
+                }
+            };
+            const TEXTS = getTexts();
 
             if (loading) return <div className="flex items-center justify-center min-h-screen text-blue-600"><Loader /></div>;
 
