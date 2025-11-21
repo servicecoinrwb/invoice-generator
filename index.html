@@ -1,566 +1,512 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Printer, Save, LogIn, LogOut, User } from 'lucide-react';
-
-// --- Firebase Imports ---
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-import { 
-  getAuth, 
-  GoogleAuthProvider, 
-  signInWithPopup, 
-  signOut, 
-  onAuthStateChanged 
-} from "firebase/auth";
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
-  getDoc 
-} from "firebase/firestore";
-
-// --- Firebase Configuration ---
-const firebaseConfig = {
-  apiKey: "AIzaSyAicK1hgi93n0FdhQhEStj1J51NTrmM6fU",
-  authDomain: "invoice-generator-478917.firebaseapp.com",
-  projectId: "invoice-generator-478917",
-  storageBucket: "invoice-generator-478917.firebasestorage.app",
-  messagingSenderId: "422967457046",
-  appId: "1:422967457046:web:4bb10e870bf42c48f34c37",
-  measurementId: "G-7936FZBQN3"
-};
-
-// --- Initialize Firebase ---
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-// Initialize analytics only if supported/needed (optional in some environments)
-try { getAnalytics(app); } catch (e) { console.log("Analytics skipped"); }
-
-const googleProvider = new GoogleAuthProvider();
-
-// App ID for Firestore path (using projectId as unique namespace)
-const APP_ID = "invoice-generator-478917";
-
-export default function InvoiceApp() {
-  // --- User State ---
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saveStatus, setSaveStatus] = useState('');
-
-  // --- Invoice State ---
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().substr(0, 10));
-  const [jobNo, setJobNo] = useState('');
-  const [woNo, setWoNo] = useState('');
-  
-  const [serviceType, setServiceType] = useState({
-    serviceCall: false,
-    plannedMaintenance: false,
-    afterHours: false,
-    shopWork: false,
-    regular: false,
-    warranty: false,
-  });
-
-  const [customerInfo, setCustomerInfo] = useState({
-    name: '',
-    billingAddress: '',
-    phone: '',
-    cell: '',
-    email: '',
-    complaint: '',
-    orderedBy: '',
-    unitAddress: '',
-    unitPhone: '',
-    hasServiceAgreement: false
-  });
-
-  const [unitInfo, setUnitInfo] = useState({
-    unitNo: '',
-    make: '',
-    model: '',
-    serial: '',
-    location: ''
-  });
-
-  const [techInfo, setTechInfo] = useState({
-    name: '',
-    enRoute: '',
-    clockIn: '',
-    clockOut: ''
-  });
-
-  const [descriptionOfWork, setDescriptionOfWork] = useState('');
-  const [recommendations, setRecommendations] = useState('');
-
-  const [items, setItems] = useState([
-    { id: 1, qty: 1, description: 'Service Charge', price: 0 }
-  ]);
-  const [taxRate, setTaxRate] = useState(0.06);
-
-  // --- Calculations ---
-  const subtotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
-  const tax = subtotal * taxRate;
-  const total = subtotal + tax;
-
-  // --- Auth & Data Persistence Effects ---
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-      
-      if (currentUser) {
-        // Auto-load data if user logs in
-        await loadInvoiceData(currentUser.uid);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Login failed:", error);
-      alert("Login failed. Please try again.");
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      // Optional: Clear form on logout or keep it? Let's keep it but user can clear manually if they want.
-      setSaveStatus('');
-    } catch (error) {
-      console.error("Logout failed:", error);
-    }
-  };
-
-  const saveInvoiceData = async () => {
-    if (!user) return;
-    setSaveStatus('Saving...');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice Generator</title>
     
-    const invoiceData = {
-      invoiceDate, jobNo, woNo, serviceType, customerInfo, 
-      unitInfo, techInfo, descriptionOfWork, recommendations, items, taxRate,
-      lastUpdated: new Date().toISOString()
-    };
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX support in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    try {
-      // Using strict path structure: artifacts/{appId}/users/{userId}/{collectionName}/{docId}
-      const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'data', 'current_invoice');
-      await setDoc(docRef, invoiceData);
-      setSaveStatus('Saved!');
-      setTimeout(() => setSaveStatus(''), 2000);
-    } catch (error) {
-      console.error("Error saving invoice:", error);
-      setSaveStatus('Error saving');
-    }
-  };
+    <style>
+        /* Custom Print Styles to ensure background colors show up */
+        @media print {
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="root"></div>
 
-  const loadInvoiceData = async (uid) => {
-    try {
-      const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'current_invoice');
-      const docSnap = await getDoc(docRef);
-      
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        // Safely restore state
-        if (data.invoiceDate) setInvoiceDate(data.invoiceDate);
-        if (data.jobNo) setJobNo(data.jobNo);
-        if (data.woNo) setWoNo(data.woNo);
-        if (data.serviceType) setServiceType(data.serviceType);
-        if (data.customerInfo) setCustomerInfo(data.customerInfo);
-        if (data.unitInfo) setUnitInfo(data.unitInfo);
-        if (data.techInfo) setTechInfo(data.techInfo);
-        if (data.descriptionOfWork) setDescriptionOfWork(data.descriptionOfWork);
-        if (data.recommendations) setRecommendations(data.recommendations);
-        if (data.items) setItems(data.items);
-        if (data.taxRate) setTaxRate(data.taxRate);
-        console.log("Invoice loaded successfully");
-      }
-    } catch (error) {
-      console.error("Error loading invoice:", error);
-    }
-  };
+    <!-- Application Code -->
+    <script type="text/babel" data-type="module">
+        // --- Imports (using ES Modules from CDN) ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { 
+            getAuth, 
+            GoogleAuthProvider, 
+            signInWithPopup, 
+            signOut, 
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            setDoc, 
+            getDoc 
+        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-  // --- Form Handlers ---
-  const handleServiceTypeChange = (key) => {
-    setServiceType(prev => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const handleCustomerChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setCustomerInfo(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  };
-
-  const handleUnitChange = (e) => {
-    setUnitInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  };
-
-  const handleTechChange = (e) => {
-    setTechInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  };
-
-  const handleItemChange = (id, field, value) => {
-    setItems(prev => prev.map(item => {
-      if (item.id === id) {
-        return { ...item, [field]: value };
-      }
-      return item;
-    }));
-  };
-
-  const addItem = () => {
-    setItems(prev => [...prev, { id: Date.now(), qty: 1, description: '', price: 0 }]);
-  };
-
-  const removeItem = (id) => {
-    if (items.length === 1) return;
-    setItems(prev => prev.filter(item => item.id !== id));
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans print:bg-white print:p-0">
-      
-      {/* Controls (Hidden when printing) */}
-      <div className="max-w-[850px] mx-auto mb-6 print:hidden flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-lg shadow">
-        <div>
-          <h1 className="text-xl font-bold text-gray-800">Invoice Generator</h1>
-          {user && <p className="text-sm text-gray-500 flex items-center gap-1"><User size={12}/> {user.email}</p>}
-        </div>
-        
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Auth Buttons */}
-          {!user ? (
-            <button 
-              onClick={handleLogin}
-              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm"
+        // --- Icons (Inline SVGs to avoid dependency issues) ---
+        const Icon = ({ d, size = 16, className = "" }) => (
+            <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width={size} 
+                height={size} 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                className={className}
             >
-              <LogIn size={16} />
-              Login to Save
-            </button>
-          ) : (
-            <>
-              <button 
-                onClick={saveInvoiceData}
-                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm"
-              >
-                <Save size={16} />
-                {saveStatus || "Save Invoice"}
-              </button>
-              <button 
-                onClick={handleLogout}
-                className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm transition-colors text-sm"
-              >
-                <LogOut size={16} />
-                Logout
-              </button>
-            </>
-          )}
+                <path d={d} />
+            </svg>
+        );
 
-          <div className="h-6 w-px bg-gray-300 mx-2"></div>
+        const Plus = (props) => <Icon d="M5 12h14M12 5v14" {...props} />;
+        const Trash2 = (props) => <Icon d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6" {...props} />;
+        const Printer = (props) => <Icon d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z" {...props} />;
+        const Save = (props) => <Icon d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8" {...props} />;
+        const LogIn = (props) => <Icon d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" {...props} />;
+        const LogOut = (props) => <Icon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" {...props} />;
+        const User = (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 16} height={props.size || 16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+        const Loader = (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`animate-spin ${props.className}`}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>;
 
-          <button 
-            onClick={handlePrint}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md transition-colors text-sm"
-          >
-            <Printer size={16} />
-            Print PDF
-          </button>
-        </div>
-      </div>
 
-      {/* Invoice Paper Sheet */}
-      <div className="max-w-[850px] mx-auto bg-white shadow-xl print:shadow-none p-8 print:p-0 text-sm md:text-base print:text-xs leading-tight">
-        
-        {/* --- Header --- */}
-        <div className="border-b-2 border-black pb-4 mb-4">
-          <div className="flex justify-between items-start">
-            {/* Logo Area */}
-            <div className="w-1/2">
-               <img 
-                 src="https://imageview.replit.app/objects/uploads/d16ab63e-1d1e-4b8f-863c-67e66e4894fc" 
-                 alt="Mechanical Temp Logo" 
-                 className="max-w-[250px] h-auto object-contain mb-2"
-               />
-            </div>
+        // --- Firebase Configuration ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAicK1hgi93n0FdhQhEStj1J51NTrmM6fU",
+            authDomain: "invoice-generator-478917.firebaseapp.com",
+            projectId: "invoice-generator-478917",
+            storageBucket: "invoice-generator-478917.firebasestorage.app",
+            messagingSenderId: "422967457046",
+            appId: "1:422967457046:web:4bb10e870bf42c48f34c37",
+            measurementId: "G-7936FZBQN3"
+        };
+
+        // --- Initialize Firebase ---
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const googleProvider = new GoogleAuthProvider();
+
+        // App ID for Firestore path
+        const APP_ID = "invoice-generator-478917";
+
+        // --- Main React Application ---
+        const { useState, useEffect } = React;
+
+        function InvoiceApp() {
+            // --- User State ---
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [saveStatus, setSaveStatus] = useState('');
+
+            // --- Invoice State ---
+            const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().substr(0, 10));
+            const [jobNo, setJobNo] = useState('');
+            const [woNo, setWoNo] = useState('');
             
-            {/* Company Contact */}
-            <div className="w-1/2 text-right text-sm">
-              <p className="font-bold">23093 Telegraph Rd</p>
-              <p>Southfield, MI 48033</p>
-              <p><span className="font-bold">Phone:</span> 313-282-4758</p>
-              <p><span className="font-bold">Email:</span> office@mechanicaltemp.com</p>
-              <p><span className="font-bold">Web:</span> www.mechanicaltemp.com</p>
-            </div>
-          </div>
-        </div>
+            const [serviceType, setServiceType] = useState({
+                serviceCall: false,
+                plannedMaintenance: false,
+                afterHours: false,
+                shopWork: false,
+                regular: false,
+                warranty: false,
+            });
 
-        {/* --- Job Details & Checkboxes --- */}
-        <div className="flex flex-wrap border border-black mb-4">
-          <div className="w-1/4 p-2 border-r border-black">
-            <label className="block font-bold text-xs mb-1">JOB #</label>
-            <input 
-              type="text" 
-              value={jobNo}
-              onChange={(e) => setJobNo(e.target.value)}
-              className="w-full bg-blue-50 px-1 print:bg-transparent outline-none"
-            />
-          </div>
-          <div className="w-1/4 p-2 border-r border-black">
-            <label className="block font-bold text-xs mb-1">DATE</label>
-            <input 
-              type="date" 
-              value={invoiceDate}
-              onChange={(e) => setInvoiceDate(e.target.value)}
-              className="w-full bg-blue-50 px-1 print:bg-transparent outline-none"
-            />
-          </div>
-           <div className="w-1/4 p-2 border-r border-black">
-            <label className="block font-bold text-xs mb-1">WO #</label>
-            <input 
-              type="text" 
-              value={woNo}
-              onChange={(e) => setWoNo(e.target.value)}
-              className="w-full bg-blue-50 px-1 print:bg-transparent outline-none"
-            />
-          </div>
+            const [customerInfo, setCustomerInfo] = useState({
+                name: '',
+                billingAddress: '',
+                phone: '',
+                cell: '',
+                email: '',
+                complaint: '',
+                orderedBy: '',
+                unitAddress: '',
+                unitPhone: '',
+                hasServiceAgreement: false
+            });
 
-          {/* Service Type Grid */}
-          <div className="w-full flex flex-wrap text-xs font-bold border-t border-black">
-             <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={serviceType.serviceCall} onChange={() => handleServiceTypeChange('serviceCall')} /> SERVICE CALL
-             </label>
-             <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={serviceType.plannedMaintenance} onChange={() => handleServiceTypeChange('plannedMaintenance')} /> PLANNED MAINTENANCE
-             </label>
-             <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={serviceType.afterHours} onChange={() => handleServiceTypeChange('afterHours')} /> AFTER HOURS EMERGENCY
-             </label>
-             <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={serviceType.shopWork} onChange={() => handleServiceTypeChange('shopWork')} /> SHOP WORK
-             </label>
-             <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={serviceType.regular} onChange={() => handleServiceTypeChange('regular')} /> REGULAR
-             </label>
-             <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer">
-               <input type="checkbox" checked={serviceType.warranty} onChange={() => handleServiceTypeChange('warranty')} /> WARRANTY
-             </label>
-          </div>
-        </div>
+            const [unitInfo, setUnitInfo] = useState({
+                unitNo: '',
+                make: '',
+                model: '',
+                serial: '',
+                location: ''
+            });
 
-        {/* --- Customer & Service Info --- */}
-        <div className="flex flex-wrap border border-black mb-4">
-          {/* Left Col */}
-          <div className="w-1/2 border-r border-black">
-            <div className="p-2 border-b border-black">
-              <label className="font-bold text-xs block">CUSTOMER</label>
-              <input name="name" value={customerInfo.name} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-            </div>
-            <div className="p-2 border-b border-black">
-              <label className="font-bold text-xs block">BILLING ADDRESS</label>
-              <textarea name="billingAddress" rows={2} value={customerInfo.billingAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
-            </div>
-            <div className="flex border-b border-black">
-               <div className="w-1/2 p-2 border-r border-black">
-                  <label className="font-bold text-xs block">PHONE</label>
-                  <input name="phone" value={customerInfo.phone} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-               </div>
-               <div className="w-1/2 p-2">
-                  <label className="font-bold text-xs block">CELL</label>
-                  <input name="cell" value={customerInfo.cell} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-               </div>
-            </div>
-            <div className="p-2">
-               <label className="font-bold text-xs block">EMAIL</label>
-               <input name="email" value={customerInfo.email} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-            </div>
-          </div>
+            const [techInfo, setTechInfo] = useState({
+                name: '',
+                enRoute: '',
+                clockIn: '',
+                clockOut: ''
+            });
 
-          {/* Right Col */}
-          <div className="w-1/2">
-             <div className="p-2 border-b border-black h-24">
-               <label className="font-bold text-xs block">COMPLAINT</label>
-               <textarea name="complaint" value={customerInfo.complaint} onChange={handleCustomerChange} className="w-full h-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
-             </div>
-             <div className="p-2 border-b border-black">
-               <label className="font-bold text-xs block">WORK ORDERED BY</label>
-               <input name="orderedBy" value={customerInfo.orderedBy} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-             </div>
-             <div className="p-2 border-b border-black">
-               <label className="font-bold text-xs block">ADDRESS OF UNIT</label>
-               <input name="unitAddress" value={customerInfo.unitAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-             </div>
-             <div className="flex">
-               <div className="w-2/3 p-2 border-r border-black">
-                  <label className="font-bold text-xs block">PHONE</label>
-                  <input name="unitPhone" value={customerInfo.unitPhone} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-               </div>
-               <div className="w-1/3 p-2 flex flex-col items-center justify-center">
-                  <label className="font-bold text-xs block text-center mb-1">SERVICE AGMT</label>
-                  <input type="checkbox" name="hasServiceAgreement" checked={customerInfo.hasServiceAgreement} onChange={handleCustomerChange} className="w-5 h-5" />
-               </div>
-             </div>
-          </div>
-        </div>
+            const [descriptionOfWork, setDescriptionOfWork] = useState('');
+            const [recommendations, setRecommendations] = useState('');
 
-        {/* --- Unit Info Table --- */}
-        <div className="mb-4 border border-black">
-           <div className="flex bg-gray-200 text-xs font-bold border-b border-black print:bg-gray-100">
-              <div className="w-1/6 p-1 border-r border-black">UNIT #</div>
-              <div className="w-1/6 p-1 border-r border-black">MAKE</div>
-              <div className="w-1/6 p-1 border-r border-black">MODEL</div>
-              <div className="w-1/4 p-1 border-r border-black">SERIAL</div>
-              <div className="w-1/4 p-1">LOCATION OF UNIT</div>
-           </div>
-           <div className="flex text-sm">
-              <input name="unitNo" value={unitInfo.unitNo} onChange={handleUnitChange} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-              <input name="make" value={unitInfo.make} onChange={handleUnitChange} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-              <input name="model" value={unitInfo.model} onChange={handleUnitChange} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-              <input name="serial" value={unitInfo.serial} onChange={handleUnitChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-              <input name="location" value={unitInfo.location} onChange={handleUnitChange} className="w-1/4 p-1 bg-blue-50 print:bg-transparent outline-none" />
-           </div>
-        </div>
+            const [items, setItems] = useState([
+                { id: 1, qty: 1, description: 'Service Charge', price: 0 }
+            ]);
+            const [taxRate, setTaxRate] = useState(0.06);
 
-        {/* --- Technician Info Table --- */}
-        <div className="mb-4 border border-black">
-           <div className="flex bg-gray-200 text-xs font-bold border-b border-black print:bg-gray-100">
-              <div className="w-1/4 p-1 border-r border-black">TECHNICIAN</div>
-              <div className="w-1/4 p-1 border-r border-black">EN ROUTE</div>
-              <div className="w-1/4 p-1 border-r border-black">CLOCK IN</div>
-              <div className="w-1/4 p-1">CLOCK OUT</div>
-           </div>
-           <div className="flex text-sm">
-              <input name="name" value={techInfo.name} onChange={handleTechChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-              <input name="enRoute" type="time" value={techInfo.enRoute} onChange={handleTechChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-              <input name="clockIn" type="time" value={techInfo.clockIn} onChange={handleTechChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-              <input name="clockOut" type="time" value={techInfo.clockOut} onChange={handleTechChange} className="w-1/4 p-1 bg-blue-50 print:bg-transparent outline-none" />
-           </div>
-        </div>
+            // --- Calculations ---
+            const subtotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+            const tax = subtotal * taxRate;
+            const total = subtotal + tax;
 
-        {/* --- Description of Work --- */}
-        <div className="mb-4 border border-black">
-           <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">DESCRIPTION OF WORK</div>
-           <textarea 
-              value={descriptionOfWork} 
-              onChange={(e) => setDescriptionOfWork(e.target.value)}
-              className="w-full h-32 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none"
-           />
-        </div>
+            // --- Auth & Data Persistence Effects ---
+            useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+                    setUser(currentUser);
+                    setLoading(false);
+                    
+                    if (currentUser) {
+                        await loadInvoiceData(currentUser.uid);
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
 
-        {/* --- Materials / Items --- */}
-        <div className="mb-4">
-           <div className="flex bg-gray-200 text-xs font-bold border border-black print:bg-gray-100">
-              <div className="w-16 p-1 border-r border-black text-center">QTY</div>
-              <div className="flex-1 p-1 border-r border-black">DESCRIPTION</div>
-              <div className="w-24 p-1 text-right border-r border-black">PRICE</div>
-              <div className="w-24 p-1 text-right">AMOUNT</div>
-              <div className="w-8 print:hidden"></div>
-           </div>
-           
-           {items.map((item) => (
-             <div key={item.id} className="flex border-b border-l border-r border-black text-sm">
-                <input 
-                  type="number" 
-                  value={item.qty} 
-                  onChange={(e) => handleItemChange(item.id, 'qty', parseFloat(e.target.value) || 0)} 
-                  className="w-16 p-1 border-r border-black text-center bg-blue-50 print:bg-transparent outline-none"
-                />
-                <input 
-                  type="text" 
-                  value={item.description} 
-                  onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} 
-                  className="flex-1 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none"
-                />
-                <input 
-                  type="number" 
-                  value={item.price} 
-                  onChange={(e) => handleItemChange(item.id, 'price', parseFloat(e.target.value) || 0)} 
-                  className="w-24 p-1 border-r border-black text-right bg-blue-50 print:bg-transparent outline-none"
-                />
-                <div className="w-24 p-1 text-right bg-gray-50 print:bg-transparent">
-                   { (item.qty * item.price).toFixed(2) }
+            const handleLogin = async () => {
+                try {
+                    await signInWithPopup(auth, googleProvider);
+                } catch (error) {
+                    console.error("Login failed:", error);
+                    alert("Login failed: " + error.message);
+                }
+            };
+
+            const handleLogout = async () => {
+                try {
+                    await signOut(auth);
+                    setSaveStatus('');
+                } catch (error) {
+                    console.error("Logout failed:", error);
+                }
+            };
+
+            const saveInvoiceData = async () => {
+                if (!user) return;
+                setSaveStatus('Saving...');
+                
+                const invoiceData = {
+                    invoiceDate, jobNo, woNo, serviceType, customerInfo, 
+                    unitInfo, techInfo, descriptionOfWork, recommendations, items, taxRate,
+                    lastUpdated: new Date().toISOString()
+                };
+
+                try {
+                    const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'data', 'current_invoice');
+                    await setDoc(docRef, invoiceData);
+                    setSaveStatus('Saved!');
+                    setTimeout(() => setSaveStatus(''), 2000);
+                } catch (error) {
+                    console.error("Error saving invoice:", error);
+                    setSaveStatus('Error saving');
+                }
+            };
+
+            const loadInvoiceData = async (uid) => {
+                try {
+                    const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'current_invoice');
+                    const docSnap = await getDoc(docRef);
+                    
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.invoiceDate) setInvoiceDate(data.invoiceDate);
+                        if (data.jobNo) setJobNo(data.jobNo);
+                        if (data.woNo) setWoNo(data.woNo);
+                        if (data.serviceType) setServiceType(data.serviceType);
+                        if (data.customerInfo) setCustomerInfo(data.customerInfo);
+                        if (data.unitInfo) setUnitInfo(data.unitInfo);
+                        if (data.techInfo) setTechInfo(data.techInfo);
+                        if (data.descriptionOfWork) setDescriptionOfWork(data.descriptionOfWork);
+                        if (data.recommendations) setRecommendations(data.recommendations);
+                        if (data.items) setItems(data.items);
+                        if (data.taxRate) setTaxRate(data.taxRate);
+                    }
+                } catch (error) {
+                    console.error("Error loading invoice:", error);
+                }
+            };
+
+            // --- Form Handlers ---
+            const handleServiceTypeChange = (key) => {
+                setServiceType(prev => ({ ...prev, [key]: !prev[key] }));
+            };
+
+            const handleCustomerChange = (e) => {
+                const { name, value, type, checked } = e.target;
+                setCustomerInfo(prev => ({
+                    ...prev,
+                    [name]: type === 'checkbox' ? checked : value
+                }));
+            };
+
+            const handleUnitChange = (e) => {
+                setUnitInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            };
+
+            const handleTechChange = (e) => {
+                setTechInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            };
+
+            const handleItemChange = (id, field, value) => {
+                setItems(prev => prev.map(item => {
+                    if (item.id === id) {
+                        return { ...item, [field]: value };
+                    }
+                    return item;
+                }));
+            };
+
+            const addItem = () => {
+                setItems(prev => [...prev, { id: Date.now(), qty: 1, description: '', price: 0 }]);
+            };
+
+            const removeItem = (id) => {
+                if (items.length === 1) return;
+                setItems(prev => prev.filter(item => item.id !== id));
+            };
+
+            const handlePrint = () => {
+                window.print();
+            };
+
+            if (loading) {
+                return <div className="flex items-center justify-center min-h-screen text-blue-600"><Loader /></div>;
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans print:bg-white print:p-0">
+                
+                {/* Controls (Hidden when printing) */}
+                <div className="no-print max-w-[850px] mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-lg shadow">
+                    <div>
+                    <h1 className="text-xl font-bold text-gray-800">Invoice Generator</h1>
+                    {user && <p className="text-sm text-gray-500 flex items-center gap-1"><User size={12}/> {user.email}</p>}
+                    </div>
+                    
+                    <div className="flex flex-wrap items-center gap-2">
+                    {!user ? (
+                        <button onClick={handleLogin} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm">
+                        <LogIn size={16} /> Login to Save
+                        </button>
+                    ) : (
+                        <>
+                        <button onClick={saveInvoiceData} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm">
+                            <Save size={16} /> {saveStatus || "Save Invoice"}
+                        </button>
+                        <button onClick={handleLogout} className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm transition-colors text-sm">
+                            <LogOut size={16} /> Logout
+                        </button>
+                        </>
+                    )}
+                    <div className="h-6 w-px bg-gray-300 mx-2"></div>
+                    <button onClick={handlePrint} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md transition-colors text-sm">
+                        <Printer size={16} /> Print PDF
+                    </button>
+                    </div>
                 </div>
-                <div className="w-8 flex items-center justify-center print:hidden">
-                  <button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-700"><Trash2 size={14} /></button>
+
+                {/* Invoice Paper Sheet */}
+                <div className="max-w-[850px] mx-auto bg-white shadow-xl print:shadow-none p-8 print:p-0 text-sm md:text-base print:text-xs leading-tight">
+                    
+                    {/* --- Header --- */}
+                    <div className="border-b-2 border-black pb-4 mb-4">
+                    <div className="flex justify-between items-start">
+                        <div className="w-1/2">
+                        <img src="https://imageview.replit.app/objects/uploads/d16ab63e-1d1e-4b8f-863c-67e66e4894fc" alt="Mechanical Temp Logo" className="max-w-[250px] h-auto object-contain mb-2" />
+                        </div>
+                        <div className="w-1/2 text-right text-sm">
+                        <p className="font-bold">23093 Telegraph Rd</p>
+                        <p>Southfield, MI 48033</p>
+                        <p><span className="font-bold">Phone:</span> 313-282-4758</p>
+                        <p><span className="font-bold">Email:</span> office@mechanicaltemp.com</p>
+                        <p><span className="font-bold">Web:</span> www.mechanicaltemp.com</p>
+                        </div>
+                    </div>
+                    </div>
+
+                    {/* --- Job Details & Checkboxes --- */}
+                    <div className="flex flex-wrap border border-black mb-4">
+                    <div className="w-1/4 p-2 border-r border-black">
+                        <label className="block font-bold text-xs mb-1">JOB #</label>
+                        <input type="text" value={jobNo} onChange={(e) => setJobNo(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                    </div>
+                    <div className="w-1/4 p-2 border-r border-black">
+                        <label className="block font-bold text-xs mb-1">DATE</label>
+                        <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                    </div>
+                    <div className="w-1/4 p-2 border-r border-black">
+                        <label className="block font-bold text-xs mb-1">WO #</label>
+                        <input type="text" value={woNo} onChange={(e) => setWoNo(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                    </div>
+                    <div className="w-full flex flex-wrap text-xs font-bold border-t border-black">
+                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.serviceCall} onChange={() => handleServiceTypeChange('serviceCall')} /> SERVICE CALL</label>
+                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.plannedMaintenance} onChange={() => handleServiceTypeChange('plannedMaintenance')} /> PLANNED MAINTENANCE</label>
+                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.afterHours} onChange={() => handleServiceTypeChange('afterHours')} /> AFTER HOURS EMERGENCY</label>
+                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.shopWork} onChange={() => handleServiceTypeChange('shopWork')} /> SHOP WORK</label>
+                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.regular} onChange={() => handleServiceTypeChange('regular')} /> REGULAR</label>
+                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.warranty} onChange={() => handleServiceTypeChange('warranty')} /> WARRANTY</label>
+                    </div>
+                    </div>
+
+                    {/* --- Customer & Service Info --- */}
+                    <div className="flex flex-wrap border border-black mb-4">
+                    <div className="w-1/2 border-r border-black">
+                        <div className="p-2 border-b border-black">
+                        <label className="font-bold text-xs block">CUSTOMER</label>
+                        <input name="name" value={customerInfo.name} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                        <div className="p-2 border-b border-black">
+                        <label className="font-bold text-xs block">BILLING ADDRESS</label>
+                        <textarea name="billingAddress" rows={2} value={customerInfo.billingAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
+                        </div>
+                        <div className="flex border-b border-black">
+                        <div className="w-1/2 p-2 border-r border-black">
+                            <label className="font-bold text-xs block">PHONE</label>
+                            <input name="phone" value={customerInfo.phone} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                        <div className="w-1/2 p-2">
+                            <label className="font-bold text-xs block">CELL</label>
+                            <input name="cell" value={customerInfo.cell} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                        </div>
+                        <div className="p-2">
+                        <label className="font-bold text-xs block">EMAIL</label>
+                        <input name="email" value={customerInfo.email} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                    </div>
+                    <div className="w-1/2">
+                        <div className="p-2 border-b border-black h-24">
+                        <label className="font-bold text-xs block">COMPLAINT</label>
+                        <textarea name="complaint" value={customerInfo.complaint} onChange={handleCustomerChange} className="w-full h-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
+                        </div>
+                        <div className="p-2 border-b border-black">
+                        <label className="font-bold text-xs block">WORK ORDERED BY</label>
+                        <input name="orderedBy" value={customerInfo.orderedBy} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                        <div className="p-2 border-b border-black">
+                        <label className="font-bold text-xs block">ADDRESS OF UNIT</label>
+                        <input name="unitAddress" value={customerInfo.unitAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                        <div className="flex">
+                        <div className="w-2/3 p-2 border-r border-black">
+                            <label className="font-bold text-xs block">PHONE</label>
+                            <input name="unitPhone" value={customerInfo.unitPhone} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                        <div className="w-1/3 p-2 flex flex-col items-center justify-center">
+                            <label className="font-bold text-xs block text-center mb-1">SERVICE AGMT</label>
+                            <input type="checkbox" name="hasServiceAgreement" checked={customerInfo.hasServiceAgreement} onChange={handleCustomerChange} className="w-5 h-5" />
+                        </div>
+                        </div>
+                    </div>
+                    </div>
+
+                    {/* --- Unit Info Table --- */}
+                    <div className="mb-4 border border-black">
+                    <div className="flex bg-gray-200 text-xs font-bold border-b border-black print:bg-gray-100">
+                        <div className="w-1/6 p-1 border-r border-black">UNIT #</div>
+                        <div className="w-1/6 p-1 border-r border-black">MAKE</div>
+                        <div className="w-1/6 p-1 border-r border-black">MODEL</div>
+                        <div className="w-1/4 p-1 border-r border-black">SERIAL</div>
+                        <div className="w-1/4 p-1">LOCATION OF UNIT</div>
+                    </div>
+                    <div className="flex text-sm">
+                        <input name="unitNo" value={unitInfo.unitNo} onChange={handleUnitChange} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                        <input name="make" value={unitInfo.make} onChange={handleUnitChange} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                        <input name="model" value={unitInfo.model} onChange={handleUnitChange} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                        <input name="serial" value={unitInfo.serial} onChange={handleUnitChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                        <input name="location" value={unitInfo.location} onChange={handleUnitChange} className="w-1/4 p-1 bg-blue-50 print:bg-transparent outline-none" />
+                    </div>
+                    </div>
+
+                    {/* --- Technician Info Table --- */}
+                    <div className="mb-4 border border-black">
+                    <div className="flex bg-gray-200 text-xs font-bold border-b border-black print:bg-gray-100">
+                        <div className="w-1/4 p-1 border-r border-black">TECHNICIAN</div>
+                        <div className="w-1/4 p-1 border-r border-black">EN ROUTE</div>
+                        <div className="w-1/4 p-1 border-r border-black">CLOCK IN</div>
+                        <div className="w-1/4 p-1">CLOCK OUT</div>
+                    </div>
+                    <div className="flex text-sm">
+                        <input name="name" value={techInfo.name} onChange={handleTechChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                        <input name="enRoute" type="time" value={techInfo.enRoute} onChange={handleTechChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                        <input name="clockIn" type="time" value={techInfo.clockIn} onChange={handleTechChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                        <input name="clockOut" type="time" value={techInfo.clockOut} onChange={handleTechChange} className="w-1/4 p-1 bg-blue-50 print:bg-transparent outline-none" />
+                    </div>
+                    </div>
+
+                    {/* --- Description of Work --- */}
+                    <div className="mb-4 border border-black">
+                    <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">DESCRIPTION OF WORK</div>
+                    <textarea value={descriptionOfWork} onChange={(e) => setDescriptionOfWork(e.target.value)} className="w-full h-32 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
+                    </div>
+
+                    {/* --- Materials / Items --- */}
+                    <div className="mb-4">
+                    <div className="flex bg-gray-200 text-xs font-bold border border-black print:bg-gray-100">
+                        <div className="w-16 p-1 border-r border-black text-center">QTY</div>
+                        <div className="flex-1 p-1 border-r border-black">DESCRIPTION</div>
+                        <div className="w-24 p-1 text-right border-r border-black">PRICE</div>
+                        <div className="w-24 p-1 text-right">AMOUNT</div>
+                        <div className="w-8 no-print"></div>
+                    </div>
+                    {items.map((item) => (
+                        <div key={item.id} className="flex border-b border-l border-r border-black text-sm">
+                        <input type="number" value={item.qty} onChange={(e) => handleItemChange(item.id, 'qty', parseFloat(e.target.value) || 0)} className="w-16 p-1 border-r border-black text-center bg-blue-50 print:bg-transparent outline-none" />
+                        <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="flex-1 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                        <input type="number" value={item.price} onChange={(e) => handleItemChange(item.id, 'price', parseFloat(e.target.value) || 0)} className="w-24 p-1 border-r border-black text-right bg-blue-50 print:bg-transparent outline-none" />
+                        <div className="w-24 p-1 text-right bg-gray-50 print:bg-transparent">{ (item.qty * item.price).toFixed(2) }</div>
+                        <div className="w-8 flex items-center justify-center no-print">
+                            <button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-700"><Trash2 size={14} /></button>
+                        </div>
+                        </div>
+                    ))}
+                    <button onClick={addItem} className="mt-2 flex items-center gap-1 text-blue-600 text-xs font-bold hover:underline no-print"><Plus size={14} /> Add Item</button>
+                    </div>
+
+                    {/* --- Totals --- */}
+                    <div className="flex mb-4 gap-4">
+                    <div className="flex-1 border border-black flex flex-col">
+                        <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">RECOMMENDATIONS</div>
+                        <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full flex-1 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
+                    </div>
+                    <div className="w-64 border border-black text-sm">
+                        <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">SUBTOTAL</span><span>${subtotal.toFixed(2)}</span></div>
+                        <div className="flex justify-between p-2 border-b border-black bg-gray-50 print:bg-transparent"><span className="font-bold">TAX RATE</span><input type="number" step="0.01" value={taxRate} onChange={(e) => setTaxRate(parseFloat(e.target.value))} className="w-12 text-right bg-blue-50 print:bg-transparent outline-none" /></div>
+                        <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">TAX</span><span>${tax.toFixed(2)}</span></div>
+                        <div className="flex justify-between p-2 font-bold bg-gray-200 print:bg-gray-100"><span>TOTAL</span><span>${total.toFixed(2)}</span></div>
+                    </div>
+                    </div>
+
+                    {/* --- Footer --- */}
+                    <div className="text-[10px] leading-tight text-justify text-gray-600 mb-6">
+                    <p className="mb-2 font-bold">Limited Warranty in Fine Print</p>
+                    <p>Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any materials or services installed previously or after services covered on this invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided, as well as, for services provided as a courtesy to the client (not charged or paid for). Mechanical Temp is not responsible for any failures or damages due to Acts of God, other individuals, or other companies performing work on the service area. Any services performed on service area and equipment, provided by individuals and companies other than Mechanical Temp will result in voiding all Warranties outlined on this invoice. Thank you for your confidence in Mechanical Temp.</p>
+                    </div>
+
+                    {/* --- Acknowledgment --- */}
+                    <div className="border border-black p-2 flex items-end gap-4">
+                    <div className="flex-1 text-[10px] leading-tight">
+                        <p className="font-bold mb-1">WORK ACKNOWLEDGMENT</p>
+                        <p>I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense. Any damage from said removal shall not be the responsibility of seller.</p>
+                    </div>
+                    <div className="w-1/3 border-t border-black pt-1">
+                        <div className="text-xs font-bold mb-8">PRINT NAME</div>
+                        <div className="text-xs font-bold border-t border-black pt-1">SIGNATURE</div>
+                    </div>
+                    </div>
                 </div>
-             </div>
-           ))}
+                </div>
+            );
+        }
 
-           <button onClick={addItem} className="mt-2 flex items-center gap-1 text-blue-600 text-xs font-bold hover:underline print:hidden">
-             <Plus size={14} /> Add Item
-           </button>
-        </div>
-
-        {/* --- Bottom Section: Recommendations & Totals --- */}
-        <div className="flex mb-4 gap-4">
-           {/* Recommendations */}
-           <div className="flex-1 border border-black flex flex-col">
-              <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">RECOMMENDATIONS</div>
-              <textarea 
-                value={recommendations} 
-                onChange={(e) => setRecommendations(e.target.value)}
-                className="w-full flex-1 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none"
-              />
-           </div>
-
-           {/* Totals */}
-           <div className="w-64 border border-black text-sm">
-              <div className="flex justify-between p-2 border-b border-black">
-                 <span className="font-bold">SUBTOTAL</span>
-                 <span>${subtotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between p-2 border-b border-black bg-gray-50 print:bg-transparent">
-                 <span className="font-bold">TAX RATE</span>
-                 <input 
-                    type="number" 
-                    step="0.01"
-                    value={taxRate} 
-                    onChange={(e) => setTaxRate(parseFloat(e.target.value))}
-                    className="w-12 text-right bg-blue-50 print:bg-transparent outline-none"
-                 />
-              </div>
-              <div className="flex justify-between p-2 border-b border-black">
-                 <span className="font-bold">TAX</span>
-                 <span>${tax.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between p-2 font-bold bg-gray-200 print:bg-gray-100">
-                 <span>TOTAL</span>
-                 <span>${total.toFixed(2)}</span>
-              </div>
-           </div>
-        </div>
-
-        {/* --- Footer & Legal --- */}
-        <div className="text-[10px] leading-tight text-justify text-gray-600 mb-6">
-           <p className="mb-2 font-bold">Limited Warranty in Fine Print</p>
-           <p>
-             Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any materials or services installed previously or after services covered on this invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided, as well as, for services provided as a courtesy to the client (not charged or paid for). Mechanical Temp is not responsible for any failures or damages due to Acts of God, other individuals, or other companies performing work on the service area. Any services performed on service area and equipment, provided by individuals and companies other than Mechanical Temp will result in voiding all Warranties outlined on this invoice. Thank you for your confidence in Mechanical Temp.
-           </p>
-        </div>
-
-        {/* --- Acknowledgment --- */}
-        <div className="border border-black p-2 flex items-end gap-4">
-           <div className="flex-1 text-[10px] leading-tight">
-             <p className="font-bold mb-1">WORK ACKNOWLEDGMENT</p>
-             <p>
-               I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense. Any damage from said removal shall not be the responsibility of seller.
-             </p>
-           </div>
-           <div className="w-1/3 border-t border-black pt-1">
-             <div className="text-xs font-bold mb-8">PRINT NAME</div>
-             <div className="text-xs font-bold border-t border-black pt-1">SIGNATURE</div>
-           </div>
-        </div>
-
-      </div>
-    </div>
-  );
-}
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<InvoiceApp />);
+    </script>
+</body>
+</html>
