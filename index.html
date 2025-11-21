@@ -1,13 +1,57 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Printer } from 'lucide-react';
+import { Plus, Trash2, Printer, Save, LogIn, LogOut, User } from 'lucide-react';
+
+// --- Firebase Imports ---
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signOut, 
+  onAuthStateChanged 
+} from "firebase/auth";
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc 
+} from "firebase/firestore";
+
+// --- Firebase Configuration ---
+const firebaseConfig = {
+  apiKey: "AIzaSyAicK1hgi93n0FdhQhEStj1J51NTrmM6fU",
+  authDomain: "invoice-generator-478917.firebaseapp.com",
+  projectId: "invoice-generator-478917",
+  storageBucket: "invoice-generator-478917.firebasestorage.app",
+  messagingSenderId: "422967457046",
+  appId: "1:422967457046:web:4bb10e870bf42c48f34c37",
+  measurementId: "G-7936FZBQN3"
+};
+
+// --- Initialize Firebase ---
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+// Initialize analytics only if supported/needed (optional in some environments)
+try { getAnalytics(app); } catch (e) { console.log("Analytics skipped"); }
+
+const googleProvider = new GoogleAuthProvider();
+
+// App ID for Firestore path (using projectId as unique namespace)
+const APP_ID = "invoice-generator-478917";
 
 export default function InvoiceApp() {
-  // --- State Management ---
+  // --- User State ---
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState('');
+
+  // --- Invoice State ---
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().substr(0, 10));
   const [jobNo, setJobNo] = useState('');
   const [woNo, setWoNo] = useState('');
   
-  // Checkboxes
   const [serviceType, setServiceType] = useState({
     serviceCall: false,
     plannedMaintenance: false,
@@ -17,7 +61,6 @@ export default function InvoiceApp() {
     warranty: false,
   });
 
-  // Customer & Site Info
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     billingAddress: '',
@@ -31,7 +74,6 @@ export default function InvoiceApp() {
     hasServiceAgreement: false
   });
 
-  // Unit Details
   const [unitInfo, setUnitInfo] = useState({
     unitNo: '',
     make: '',
@@ -40,7 +82,6 @@ export default function InvoiceApp() {
     location: ''
   });
 
-  // Technician Info
   const [techInfo, setTechInfo] = useState({
     name: '',
     enRoute: '',
@@ -51,18 +92,98 @@ export default function InvoiceApp() {
   const [descriptionOfWork, setDescriptionOfWork] = useState('');
   const [recommendations, setRecommendations] = useState('');
 
-  // Materials / Line Items
   const [items, setItems] = useState([
     { id: 1, qty: 1, description: 'Service Charge', price: 0 }
   ]);
-  const [taxRate, setTaxRate] = useState(0.06); // Default 6% tax
+  const [taxRate, setTaxRate] = useState(0.06);
 
   // --- Calculations ---
   const subtotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
   const tax = subtotal * taxRate;
   const total = subtotal + tax;
 
-  // --- Handlers ---
+  // --- Auth & Data Persistence Effects ---
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+      
+      if (currentUser) {
+        // Auto-load data if user logs in
+        await loadInvoiceData(currentUser.uid);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("Login failed:", error);
+      alert("Login failed. Please try again.");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      // Optional: Clear form on logout or keep it? Let's keep it but user can clear manually if they want.
+      setSaveStatus('');
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
+
+  const saveInvoiceData = async () => {
+    if (!user) return;
+    setSaveStatus('Saving...');
+    
+    const invoiceData = {
+      invoiceDate, jobNo, woNo, serviceType, customerInfo, 
+      unitInfo, techInfo, descriptionOfWork, recommendations, items, taxRate,
+      lastUpdated: new Date().toISOString()
+    };
+
+    try {
+      // Using strict path structure: artifacts/{appId}/users/{userId}/{collectionName}/{docId}
+      const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'data', 'current_invoice');
+      await setDoc(docRef, invoiceData);
+      setSaveStatus('Saved!');
+      setTimeout(() => setSaveStatus(''), 2000);
+    } catch (error) {
+      console.error("Error saving invoice:", error);
+      setSaveStatus('Error saving');
+    }
+  };
+
+  const loadInvoiceData = async (uid) => {
+    try {
+      const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'current_invoice');
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        // Safely restore state
+        if (data.invoiceDate) setInvoiceDate(data.invoiceDate);
+        if (data.jobNo) setJobNo(data.jobNo);
+        if (data.woNo) setWoNo(data.woNo);
+        if (data.serviceType) setServiceType(data.serviceType);
+        if (data.customerInfo) setCustomerInfo(data.customerInfo);
+        if (data.unitInfo) setUnitInfo(data.unitInfo);
+        if (data.techInfo) setTechInfo(data.techInfo);
+        if (data.descriptionOfWork) setDescriptionOfWork(data.descriptionOfWork);
+        if (data.recommendations) setRecommendations(data.recommendations);
+        if (data.items) setItems(data.items);
+        if (data.taxRate) setTaxRate(data.taxRate);
+        console.log("Invoice loaded successfully");
+      }
+    } catch (error) {
+      console.error("Error loading invoice:", error);
+    }
+  };
+
+  // --- Form Handlers ---
   const handleServiceTypeChange = (key) => {
     setServiceType(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -97,7 +218,7 @@ export default function InvoiceApp() {
   };
 
   const removeItem = (id) => {
-    if (items.length === 1) return; // Keep at least one row
+    if (items.length === 1) return;
     setItems(prev => prev.filter(item => item.id !== id));
   };
 
@@ -109,15 +230,51 @@ export default function InvoiceApp() {
     <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans print:bg-white print:p-0">
       
       {/* Controls (Hidden when printing) */}
-      <div className="max-w-4xl mx-auto mb-6 flex justify-between items-center print:hidden">
-        <h1 className="text-2xl font-bold text-gray-800">Invoice Generator</h1>
-        <button 
-          onClick={handlePrint}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md transition-colors"
-        >
-          <Printer size={20} />
-          Print / Save as PDF
-        </button>
+      <div className="max-w-[850px] mx-auto mb-6 print:hidden flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-lg shadow">
+        <div>
+          <h1 className="text-xl font-bold text-gray-800">Invoice Generator</h1>
+          {user && <p className="text-sm text-gray-500 flex items-center gap-1"><User size={12}/> {user.email}</p>}
+        </div>
+        
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Auth Buttons */}
+          {!user ? (
+            <button 
+              onClick={handleLogin}
+              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm"
+            >
+              <LogIn size={16} />
+              Login to Save
+            </button>
+          ) : (
+            <>
+              <button 
+                onClick={saveInvoiceData}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm"
+              >
+                <Save size={16} />
+                {saveStatus || "Save Invoice"}
+              </button>
+              <button 
+                onClick={handleLogout}
+                className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm transition-colors text-sm"
+              >
+                <LogOut size={16} />
+                Logout
+              </button>
+            </>
+          )}
+
+          <div className="h-6 w-px bg-gray-300 mx-2"></div>
+
+          <button 
+            onClick={handlePrint}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md transition-colors text-sm"
+          >
+            <Printer size={16} />
+            Print PDF
+          </button>
+        </div>
       </div>
 
       {/* Invoice Paper Sheet */}
