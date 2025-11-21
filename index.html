@@ -193,7 +193,7 @@
                     setUser(currentUser);
                     setLoading(false);
                     if (currentUser) {
-                        // await loadLastDraft(currentUser.uid); // Removed auto-load of draft to encourage list usage, or we can keep it.
+                        await loadInvoiceData(currentUser.uid);
                         await loadCustomerDB(currentUser.uid); 
                         await fetchSavedInvoices(currentUser.uid);
                     }
@@ -213,9 +213,7 @@
             };
 
             const loadInvoiceFromHistory = (docData, docId) => {
-                setInvoiceId(docId); // Set the ID so next save updates this one
-                
-                // Populate State
+                setInvoiceId(docId); 
                 setDocType(docData.docType || 'invoice');
                 setInvoiceDate(docData.invoiceDate || new Date().toISOString().substr(0, 10));
                 setJobNo(docData.jobNo || '');
@@ -229,17 +227,16 @@
                 setItems(docData.items || [{ id: 1, qty: 1, description: 'Service Charge', price: 0 }]);
                 setTaxRate(docData.taxRate || 0.06);
                 
-                setShowHistory(false); // Close modal
+                setShowHistory(false);
             };
 
             const createNewInvoice = () => {
                 if (confirm("Start a new blank document? Unsaved changes will be lost.")) {
-                    setInvoiceId(null); // Clear ID = New Doc
+                    setInvoiceId(null);
                     setDocType('invoice');
                     setInvoiceDate(new Date().toISOString().substr(0, 10));
                     setJobNo('');
                     setWoNo('');
-                    // Clear other fields
                     setCustomerInfo({ name: '', billingAddress: '', phone: '', cell: '', email: '', complaint: '', orderedBy: '', unitAddress: '', unitPhone: '', hasServiceAgreement: false });
                     setUnits([{ id: Date.now(), unitNo: '', make: '', model: '', serial: '', location: '' }]);
                     setTechnicians([{ id: Date.now(), name: '', enRoute: '', clockIn: '', clockOut: '' }]);
@@ -259,7 +256,6 @@
                     invoiceDate, jobNo, woNo, serviceType, customerInfo, 
                     units, technicians, descriptionOfWork, recommendations, items, taxRate,
                     lastUpdated: new Date().toISOString(),
-                    // Save a summary for the list view
                     summary: {
                         customerName: customerInfo.name,
                         total: total,
@@ -269,19 +265,17 @@
 
                 try {
                     if (invoiceId) {
-                        // Update Existing
                         const docRef = doc(db, 'artifacts', APP_ID, 'users', user.uid, 'invoices', invoiceId);
                         await setDoc(docRef, invoiceData);
                     } else {
-                        // Create New
                         const collectionRef = collection(db, 'artifacts', APP_ID, 'users', user.uid, 'invoices');
                         const docRef = await addDoc(collectionRef, invoiceData);
-                        setInvoiceId(docRef.id); // Capture the new ID
+                        setInvoiceId(docRef.id);
                     }
                     
                     setSaveStatus('Saved!');
                     setTimeout(() => setSaveStatus(''), 2000);
-                    fetchSavedInvoices(user.uid); // Refresh list
+                    fetchSavedInvoices(user.uid);
                 } catch (error) { 
                     console.error(error); 
                     setSaveStatus('Error'); 
@@ -426,95 +420,142 @@
                     </div>
                 )}
 
-                {/* Top Controls */}
-                <div className="no-print max-w-[850px] mx-auto mb-6 bg-white p-4 rounded-lg shadow flex flex-col gap-4">
-                    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                        <div className="flex items-center gap-3">
-                            {/* NEW BUTTONS FOR HISTORY */}
-                            {user && (
-                                <>
-                                    <button onClick={() => setShowHistory(true)} className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded text-xs font-bold border border-gray-300">
-                                        <History size={14} /> History
-                                    </button>
-                                    <button onClick={createNewInvoice} className="flex items-center gap-1 bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-2 rounded text-xs font-bold border border-blue-300">
-                                        <FilePlus2 size={14} /> New
-                                    </button>
-                                </>
-                            )}
-                            <div>
-                                <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                    {docType === 'invoice' ? 'Invoice Generator' : docType === 'quote' ? 'Quote Generator' : 'Work Order System'}
-                                </h1>
-                                {invoiceId && <span className="text-[10px] bg-green-100 text-green-800 px-2 py-0.5 rounded-full">Editing Saved Doc</span>}
+                {/* --- NEW REDESIGNED TOP CONTROLS --- */}
+                <div className="no-print max-w-[850px] mx-auto mb-6 bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col gap-5">
+                    
+                    {/* Row 1: Header & Main File Actions */}
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                <FileText className="text-blue-600" /> 
+                                {docType === 'invoice' ? 'Invoice Generator' : docType === 'quote' ? 'Quote Generator' : 'Work Order System'}
+                            </h1>
+                            <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                                {user ? <span className="flex items-center gap-1"><User size={12}/> {user.email}</span> : <span>Not logged in</span>}
+                                {invoiceId && <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Editing Saved Doc</span>}
                             </div>
                         </div>
 
-                        {/* MODE SWITCHER */}
-                        <div className="flex flex-col items-end gap-2">
-                            <div className="flex bg-gray-100 p-1 rounded-lg">
-                                <button onClick={() => setDocType('invoice')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${docType === 'invoice' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}>INVOICE</button>
-                                <button onClick={() => setDocType('quote')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${docType === 'quote' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}>QUOTE</button>
-                                <button onClick={() => setDocType('work_order')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${docType === 'work_order' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}>WORK ORDER</button>
-                            </div>
-                            
-                            {/* CONVERSION BUTTONS */}
-                            <div className="flex gap-2">
-                                {docType === 'quote' && <button onClick={() => handleConvert('invoice')} className="flex items-center gap-1 bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 rounded text-xs font-bold shadow-sm"><ArrowRight size={12} /> To Invoice</button>}
-                                {docType === 'invoice' && (
-                                    <>
-                                        <button onClick={() => handleConvert('quote')} className="flex items-center gap-1 bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs font-bold shadow-sm"><FilePlus size={12} /> To Quote</button>
-                                        <button onClick={() => handleConvert('work_order')} className="flex items-center gap-1 bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs font-bold shadow-sm"><Clipboard size={12} /> To Work Order</button>
-                                    </>
-                                )}
-                                {docType === 'work_order' && (
-                                    <>
-                                        <button onClick={() => handleConvert('quote')} className="flex items-center gap-1 bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs font-bold shadow-sm"><FilePlus size={12} /> Create Quote</button>
-                                        <button onClick={() => handleConvert('invoice')} className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs font-bold shadow-sm"><ArrowRight size={12} /> Create Invoice</button>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap gap-2">
                             {!user ? (
-                                <button onClick={handleLogin} className="flex items-center gap-2 bg-gray-800 text-white px-3 py-1.5 rounded text-xs"><LogIn size={14} /> Login</button>
+                                <button onClick={handleLogin} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"><LogIn size={16} /> Login</button>
                             ) : (
                                 <>
-                                    <label className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded text-xs cursor-pointer transition-colors">
-                                        <UploadCloud size={14} /> Update DB
-                                        <input ref={csvInputRef} type="file" accept=".csv" onChange={handleCSVUpload} className="hidden" />
-                                    </label>
-                                    <button onClick={saveInvoiceData} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-xs transition-colors">
-                                        <Save size={14} /> {saveStatus || "Save"}
+                                    <button onClick={createNewInvoice} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium" title="Start New Document">
+                                        <FilePlus2 size={16} /> New
                                     </button>
-                                    <button onClick={handleLogout} className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-xs transition-colors">
-                                        <LogOut size={14} /> Logout
+                                    <button onClick={() => setShowHistory(true)} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium" title="View History">
+                                        <History size={16} /> History
+                                    </button>
+                                    <button onClick={saveInvoiceData} className="flex items-center gap-2 px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium shadow-sm min-w-[80px] justify-center">
+                                        <Save size={16} /> {saveStatus || "Save"}
+                                    </button>
+                                    <button onClick={handlePrint} className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm">
+                                        <Printer size={16} /> Print
+                                    </button>
+                                    <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-500 transition-colors" title="Logout">
+                                        <LogOut size={18} />
                                     </button>
                                 </>
                             )}
-                            <div className="h-5 w-px bg-gray-300 mx-1"></div>
-                            <button onClick={handlePrint} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs transition-colors">
-                                <Printer size={14} /> Print
-                            </button>
                         </div>
                     </div>
 
-                    {/* SEARCH BAR */}
+                    {/* Row 2: Mode Switcher & Context Actions */}
+                    {user && (
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4 p-1 bg-gray-50 rounded-lg border border-gray-100">
+                        
+                        {/* Mode Tabs */}
+                        <div className="flex p-1 bg-white rounded-md border border-gray-200 shadow-sm">
+                            {['invoice', 'quote', 'work_order'].map((mode) => (
+                                <button
+                                    key={mode}
+                                    onClick={() => setDocType(mode)}
+                                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                                        docType === mode 
+                                        ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-200' 
+                                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    {mode === 'work_order' ? 'Work Order' : mode.charAt(0).toUpperCase() + mode.slice(1)}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Action Buttons (Right Side) */}
+                        <div className="flex items-center gap-3 px-2">
+                             {/* Conversion Logic Buttons */}
+                             {docType === 'quote' && (
+                                <button onClick={() => handleConvert('invoice')} className="flex items-center gap-1.5 text-xs font-medium text-orange-600 hover:text-orange-700 bg-orange-50 px-3 py-1.5 rounded-md transition-colors border border-orange-200">
+                                    <ArrowRight size={12} /> To Invoice
+                                </button>
+                             )}
+                             {docType === 'invoice' && (
+                                <>
+                                    <button onClick={() => handleConvert('quote')} className="flex items-center gap-1.5 text-xs font-medium text-purple-600 hover:text-purple-700 bg-purple-50 px-3 py-1.5 rounded-md transition-colors border border-purple-200">
+                                        <FilePlus size={12} /> To Quote
+                                    </button>
+                                    <button onClick={() => handleConvert('work_order')} className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-700 bg-gray-100 px-3 py-1.5 rounded-md transition-colors border border-gray-300">
+                                        <Clipboard size={12} /> To WO
+                                    </button>
+                                </>
+                             )}
+                             {docType === 'work_order' && (
+                                <div className="flex gap-2">
+                                    <button onClick={() => handleConvert('quote')} className="flex items-center gap-1.5 text-xs font-medium text-purple-600 hover:text-purple-700 bg-purple-50 px-3 py-1.5 rounded-md transition-colors border border-purple-200">
+                                        <FilePlus size={12} /> To Quote
+                                    </button>
+                                    <button onClick={() => handleConvert('invoice')} className="flex items-center gap-1.5 text-xs font-medium text-green-600 hover:text-green-700 bg-green-50 px-3 py-1.5 rounded-md transition-colors border border-green-200">
+                                        <ArrowRight size={12} /> To Invoice
+                                    </button>
+                                </div>
+                             )}
+                             
+                             <div className="h-4 w-px bg-gray-300 mx-1"></div>
+
+                             {/* CSV Upload */}
+                             <label className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 cursor-pointer bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-200 transition-colors">
+                                <UploadCloud size={12} /> Update DB
+                                <input ref={csvInputRef} type="file" accept=".csv" onChange={handleCSVUpload} className="hidden" />
+                             </label>
+                        </div>
+                    </div>
+                    )}
+
+                    {/* Row 3: Search Bar */}
                     {user && customerDB.length > 0 && (
                         <div className="relative w-full">
-                            <div className="flex items-center border border-gray-300 rounded bg-gray-50 px-2 focus-within:ring-2 focus-within:ring-blue-500">
-                                <Search size={16} className="text-gray-400 mr-2" />
-                                <input type="text" placeholder="Quick Fill: Search by Customer Name, Store Name, or Address..." className="w-full p-2 bg-transparent outline-none text-sm" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setShowResults(true); }} onFocus={() => setShowResults(true)} />
-                                {searchQuery && <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600 text-xs p-1">Clear</button>}
+                            <div className="flex items-center border border-gray-300 rounded-lg bg-gray-50 px-3 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent focus-within:bg-white transition-all">
+                                <Search size={18} className="text-gray-400 mr-3" />
+                                <input 
+                                    type="text" 
+                                    placeholder="Search Database: Customer Name, Store Name, or Address..." 
+                                    className="w-full bg-transparent outline-none text-sm text-gray-700 placeholder-gray-400"
+                                    value={searchQuery}
+                                    onChange={(e) => { setSearchQuery(e.target.value); setShowResults(true); }}
+                                    onFocus={() => setShowResults(true)}
+                                />
+                                {searchQuery && (
+                                    <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors">
+                                        &times;
+                                    </button>
+                                )}
                             </div>
+                            
                             {showResults && searchQuery.length > 1 && (
-                                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 shadow-lg rounded max-h-60 overflow-y-auto">
+                                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 shadow-xl rounded-lg max-h-60 overflow-y-auto">
                                     {customerDB.filter(item => item.searchStr.includes(searchQuery.toLowerCase())).slice(0, 10).map((item, idx) => (
-                                        <div key={idx} className="p-2 hover:bg-blue-50 cursor-pointer text-sm border-b border-gray-100 last:border-0" onClick={() => handleSearchResultClick(item)}>
-                                            <div className="font-bold text-gray-800">{item.locationName} <span className="text-gray-400 font-normal">({item.name})</span></div>
-                                            <div className="text-xs text-gray-500">{item.address}</div>
+                                        <div key={idx} className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 flex justify-between items-center group" onClick={() => handleSearchResultClick(item)}>
+                                            <div>
+                                                <div className="font-bold text-gray-800 text-sm group-hover:text-blue-700">{item.locationName} <span className="text-gray-400 font-normal">({item.name})</span></div>
+                                                <div className="text-xs text-gray-500">{item.address}</div>
+                                            </div>
+                                            <span className="text-xs text-gray-300 group-hover:text-blue-400">Select</span>
                                         </div>
                                     ))}
+                                    {customerDB.filter(item => item.searchStr.includes(searchQuery.toLowerCase())).length === 0 && (
+                                        <div className="p-4 text-center text-gray-400 text-sm">No results found</div>
+                                    )}
                                 </div>
                             )}
                         </div>
