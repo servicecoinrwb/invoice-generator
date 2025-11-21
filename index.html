@@ -282,7 +282,7 @@
                 }
             };
 
-            // --- Database Logic (CSV) ---
+            // --- Database Logic (CSV) - OPTIMIZED ---
             const handleCSVUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -297,6 +297,7 @@
                             locationName: row['Customer'] || '',
                             address: row['Service Address'] || '',
                             jobNo: row['Job No.'] || '',
+                            // Keep searchStr IN MEMORY but we will strip it before saving to DB
                             searchStr: `${row['Bill To']} ${row['Customer']} ${row['Service Address']} ${row['Job No.']}`.toLowerCase()
                         })).filter(item => item.name || item.address);
 
@@ -311,23 +312,38 @@
                         await saveCustomerDB(mergedList, user.uid);
                         alert(`Database merged successfully! Total Records: ${mergedList.length}`);
                     },
-                    error: (err) => { console.error("CSV Error:", err); alert("Error reading CSV file."); }
+                    error: (err) => { console.error("CSV Error:", err); alert("Error reading CSV file: " + err.message); }
                 });
                 if(csvInputRef.current) csvInputRef.current.value = '';
             };
 
             const saveCustomerDB = async (data, uid) => {
                 try {
+                    // OPTIMIZATION: Strip 'searchStr' to save 50% space in Cloud Firestore
+                    // Firestore has a 1MB limit per document.
+                    const optimizedData = data.map(({ searchStr, ...rest }) => rest);
+
                     const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'customer_db');
-                    await setDoc(docRef, { list: data, lastUpdated: new Date().toISOString() });
-                } catch (error) { console.error("Error saving DB:", error); }
+                    await setDoc(docRef, { list: optimizedData, lastUpdated: new Date().toISOString() });
+                } catch (error) { 
+                    console.error("Error saving DB:", error);
+                    alert("Error saving database to cloud: " + error.message);
+                }
             };
 
             const loadCustomerDB = async (uid) => {
                 try {
                     const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'customer_db');
                     const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) { setCustomerDB(docSnap.data().list || []); }
+                    if (docSnap.exists()) { 
+                        const list = docSnap.data().list || [];
+                        // RE-HYDRATE: Re-create searchStr on load so searching works
+                        const hydratedList = list.map(item => ({
+                            ...item,
+                            searchStr: `${item.name} ${item.locationName} ${item.address} ${item.jobNo}`.toLowerCase()
+                        }));
+                        setCustomerDB(hydratedList); 
+                    }
                 } catch (error) { console.error("Error loading DB:", error); }
             };
 
