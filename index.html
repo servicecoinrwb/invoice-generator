@@ -144,7 +144,7 @@
                 return () => unsubscribe();
             }, []);
 
-            // --- Database Logic ---
+            // --- Database Logic (SMART MERGE) ---
             const handleCSVUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -155,34 +155,48 @@
                     skipEmptyLines: true,
                     complete: async (results) => {
                         const rawData = results.data;
-                        // Process and minimize data to save space
-                        // Mapping: 'Bill To' -> Payer, 'Customer' -> Location Name, 'Service Address' -> Unit Address
-                        const processedDB = rawData.map(row => ({
+                        
+                        // 1. Convert CSV rows to clean objects
+                        const newEntries = rawData.map(row => ({
                             name: row['Bill To'] || row['Customer'] || '',
-                            locationName: row['Customer'] || '', // Store name like "Rally House"
+                            locationName: row['Customer'] || '',
                             address: row['Service Address'] || '',
                             jobNo: row['Job No.'] || '',
-                            // Add search string for easy filtering
                             searchStr: `${row['Bill To']} ${row['Customer']} ${row['Service Address']} ${row['Job No.']}`.toLowerCase()
-                        })).filter(item => item.name || item.address); // Filter empty rows
+                        })).filter(item => item.name || item.address);
 
-                        setCustomerDB(processedDB);
-                        await saveCustomerDB(processedDB, user.uid);
-                        alert(`Database updated! Imported ${processedDB.length} records.`);
+                        // 2. MERGE Logic
+                        // Create a Map using JobNo (unique ID) or fallback to searchStr if JobNo is missing
+                        // We initialize it with the EXISTING database so we don't lose old records
+                        const dbMap = new Map(customerDB.map(item => [item.jobNo || item.searchStr, item]));
+                        
+                        // 3. Add/Update with NEW entries
+                        // This overwrites duplicates (updates them) and adds new ones
+                        newEntries.forEach(entry => {
+                            const key = entry.jobNo || entry.searchStr;
+                            dbMap.set(key, entry);
+                        });
+
+                        // 4. Convert back to array
+                        const mergedList = Array.from(dbMap.values());
+
+                        // 5. Save
+                        setCustomerDB(mergedList);
+                        await saveCustomerDB(mergedList, user.uid);
+                        alert(`Database merged successfully!\n\nTotal Records: ${mergedList.length}\nNew/Updated from this file: ${newEntries.length}`);
                     },
                     error: (err) => {
                         console.error("CSV Error:", err);
                         alert("Error reading CSV file.");
                     }
                 });
+                // Reset input so same file can be selected again if needed
+                if(csvInputRef.current) csvInputRef.current.value = '';
             };
 
             const saveCustomerDB = async (data, uid) => {
                 try {
-                    // Save as a separate document 'customer_db'
                     const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'customer_db');
-                    // Firestore doc limit is 1MB. If > 2000 rows, might need splitting. 
-                    // For now, we assume typical small business list fits.
                     await setDoc(docRef, { list: data, lastUpdated: new Date().toISOString() });
                 } catch (error) {
                     console.error("Error saving DB:", error);
@@ -203,16 +217,13 @@
             };
 
             const handleSearchResultClick = (record) => {
-                // Auto-fill logic
                 setJobNo(record.jobNo || '');
                 setCustomerInfo(prev => ({
                     ...prev,
                     name: record.name,
                     unitAddress: record.address,
-                    billingAddress: prev.billingAddress || '', // Keep existing if user typed it, or leave blank
+                    billingAddress: prev.billingAddress || '',
                 }));
-                
-                // Also fill "Location" in the first unit row if blank
                 setUnits(prev => {
                     const newUnits = [...prev];
                     if (newUnits.length > 0) {
@@ -220,7 +231,6 @@
                     }
                     return newUnits;
                 });
-
                 setSearchQuery('');
                 setShowResults(false);
             };
