@@ -20,6 +20,7 @@
         @media print {
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .no-print { display: none !important; }
+            .print-break-inside-avoid { break-inside: avoid; }
         }
     </style>
 </head>
@@ -44,20 +45,9 @@
             getDoc 
         } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // --- Icons (Inline SVGs to avoid dependency issues) ---
+        // --- Icons (Inline SVGs) ---
         const Icon = ({ d, size = 16, className = "" }) => (
-            <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                width={size} 
-                height={size} 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2" 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                className={className}
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
                 <path d={d} />
             </svg>
         );
@@ -68,6 +58,8 @@
         const Save = (props) => <Icon d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8" {...props} />;
         const LogIn = (props) => <Icon d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" {...props} />;
         const LogOut = (props) => <Icon d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" {...props} />;
+        const Paperclip = (props) => <Icon d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" {...props} />;
+        const FileText = (props) => <Icon d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M14 2v6h6" {...props} />;
         const User = (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 16} height={props.size || 16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
         const Loader = (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`animate-spin ${props.className}`}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>;
 
@@ -88,12 +80,10 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const googleProvider = new GoogleAuthProvider();
-
-        // App ID for Firestore path
         const APP_ID = "invoice-generator-478917";
 
         // --- Main React Application ---
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         function InvoiceApp() {
             // --- User State ---
@@ -128,20 +118,15 @@
                 hasServiceAgreement: false
             });
 
-            const [unitInfo, setUnitInfo] = useState({
-                unitNo: '',
-                make: '',
-                model: '',
-                serial: '',
-                location: ''
-            });
+            // Units State (Array)
+            const [units, setUnits] = useState([
+                { id: 1, unitNo: '', make: '', model: '', serial: '', location: '' }
+            ]);
 
-            const [techInfo, setTechInfo] = useState({
-                name: '',
-                enRoute: '',
-                clockIn: '',
-                clockOut: ''
-            });
+            // Technicians State (Array)
+            const [technicians, setTechnicians] = useState([
+                { id: 1, name: '', enRoute: '', clockIn: '', clockOut: '' }
+            ]);
 
             const [descriptionOfWork, setDescriptionOfWork] = useState('');
             const [recommendations, setRecommendations] = useState('');
@@ -151,17 +136,20 @@
             ]);
             const [taxRate, setTaxRate] = useState(0.06);
 
+            // --- Attachment State ---
+            const [attachments, setAttachments] = useState([]);
+            const fileInputRef = useRef(null);
+
             // --- Calculations ---
             const subtotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
             const tax = subtotal * taxRate;
             const total = subtotal + tax;
 
-            // --- Auth & Data Persistence Effects ---
+            // --- Effects ---
             useEffect(() => {
                 const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
                     setUser(currentUser);
                     setLoading(false);
-                    
                     if (currentUser) {
                         await loadInvoiceData(currentUser.uid);
                     }
@@ -169,22 +157,15 @@
                 return () => unsubscribe();
             }, []);
 
+            // --- Handlers ---
             const handleLogin = async () => {
-                try {
-                    await signInWithPopup(auth, googleProvider);
-                } catch (error) {
-                    console.error("Login failed:", error);
-                    alert("Login failed: " + error.message);
-                }
+                try { await signInWithPopup(auth, googleProvider); } 
+                catch (error) { console.error("Login failed:", error); alert("Login failed: " + error.message); }
             };
 
             const handleLogout = async () => {
-                try {
-                    await signOut(auth);
-                    setSaveStatus('');
-                } catch (error) {
-                    console.error("Logout failed:", error);
-                }
+                try { await signOut(auth); setSaveStatus(''); } 
+                catch (error) { console.error("Logout failed:", error); }
             };
 
             const saveInvoiceData = async () => {
@@ -193,7 +174,8 @@
                 
                 const invoiceData = {
                     invoiceDate, jobNo, woNo, serviceType, customerInfo, 
-                    unitInfo, techInfo, descriptionOfWork, recommendations, items, taxRate,
+                    units, technicians, // Save arrays
+                    descriptionOfWork, recommendations, items, taxRate,
                     lastUpdated: new Date().toISOString()
                 };
 
@@ -212,7 +194,6 @@
                 try {
                     const docRef = doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'current_invoice');
                     const docSnap = await getDoc(docRef);
-                    
                     if (docSnap.exists()) {
                         const data = docSnap.data();
                         if (data.invoiceDate) setInvoiceDate(data.invoiceDate);
@@ -220,8 +201,23 @@
                         if (data.woNo) setWoNo(data.woNo);
                         if (data.serviceType) setServiceType(data.serviceType);
                         if (data.customerInfo) setCustomerInfo(data.customerInfo);
-                        if (data.unitInfo) setUnitInfo(data.unitInfo);
-                        if (data.techInfo) setTechInfo(data.techInfo);
+                        
+                        // Handle Unit Data (Convert legacy single object to array if needed)
+                        if (data.units && Array.isArray(data.units)) {
+                            setUnits(data.units);
+                        } else if (data.unitInfo) {
+                            // Legacy migration
+                            setUnits([{ ...data.unitInfo, id: Date.now() }]);
+                        }
+
+                        // Handle Tech Data (Convert legacy single object to array if needed)
+                        if (data.technicians && Array.isArray(data.technicians)) {
+                            setTechnicians(data.technicians);
+                        } else if (data.techInfo) {
+                            // Legacy migration
+                            setTechnicians([{ ...data.techInfo, id: Date.now() }]);
+                        }
+
                         if (data.descriptionOfWork) setDescriptionOfWork(data.descriptionOfWork);
                         if (data.recommendations) setRecommendations(data.recommendations);
                         if (data.items) setItems(data.items);
@@ -232,273 +228,347 @@
                 }
             };
 
-            // --- Form Handlers ---
-            const handleServiceTypeChange = (key) => {
-                setServiceType(prev => ({ ...prev, [key]: !prev[key] }));
-            };
-
+            // Form Helpers
+            const handleServiceTypeChange = (key) => setServiceType(prev => ({ ...prev, [key]: !prev[key] }));
             const handleCustomerChange = (e) => {
                 const { name, value, type, checked } = e.target;
-                setCustomerInfo(prev => ({
-                    ...prev,
-                    [name]: type === 'checkbox' ? checked : value
-                }));
+                setCustomerInfo(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
             };
 
-            const handleUnitChange = (e) => {
-                setUnitInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            // --- UNIT Handlers ---
+            const handleUnitChange = (id, field, value) => {
+                setUnits(prev => prev.map(u => u.id === id ? { ...u, [field]: value } : u));
             };
+            const addUnit = () => setUnits(prev => [...prev, { id: Date.now(), unitNo: '', make: '', model: '', serial: '', location: '' }]);
+            const removeUnit = (id) => { if (units.length > 1) setUnits(prev => prev.filter(u => u.id !== id)); };
 
-            const handleTechChange = (e) => {
-                setTechInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            // --- TECH Handlers ---
+            const handleTechChange = (id, field, value) => {
+                setTechnicians(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
             };
+            const addTech = () => setTechnicians(prev => [...prev, { id: Date.now(), name: '', enRoute: '', clockIn: '', clockOut: '' }]);
+            const removeTech = (id) => { if (technicians.length > 1) setTechnicians(prev => prev.filter(t => t.id !== id)); };
 
+            // --- ITEM Handlers ---
             const handleItemChange = (id, field, value) => {
-                setItems(prev => prev.map(item => {
-                    if (item.id === id) {
-                        return { ...item, [field]: value };
-                    }
-                    return item;
-                }));
+                setItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+            };
+            const addItem = () => setItems(prev => [...prev, { id: Date.now(), qty: 1, description: '', price: 0 }]);
+            const removeItem = (id) => { if (items.length > 1) setItems(prev => prev.filter(item => item.id !== id)); };
+            
+            const handlePrint = () => window.print();
+
+            // --- File Handling ---
+            const handleFileSelect = (e) => {
+                const files = Array.from(e.target.files);
+                files.forEach(file => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        setAttachments(prev => [...prev, {
+                            id: Date.now() + Math.random(),
+                            name: file.name,
+                            type: file.type,
+                            data: reader.result
+                        }]);
+                    };
+                    reader.readAsDataURL(file);
+                });
+                if (fileInputRef.current) fileInputRef.current.value = '';
             };
 
-            const addItem = () => {
-                setItems(prev => [...prev, { id: Date.now(), qty: 1, description: '', price: 0 }]);
+            const removeAttachment = (id) => {
+                setAttachments(prev => prev.filter(att => att.id !== id));
             };
 
-            const removeItem = (id) => {
-                if (items.length === 1) return;
-                setItems(prev => prev.filter(item => item.id !== id));
-            };
-
-            const handlePrint = () => {
-                window.print();
-            };
-
-            if (loading) {
-                return <div className="flex items-center justify-center min-h-screen text-blue-600"><Loader /></div>;
-            }
+            if (loading) return <div className="flex items-center justify-center min-h-screen text-blue-600"><Loader /></div>;
 
             return (
                 <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans print:bg-white print:p-0">
                 
-                {/* Controls (Hidden when printing) */}
+                {/* Controls */}
                 <div className="no-print max-w-[850px] mx-auto mb-6 flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-lg shadow">
                     <div>
-                    <h1 className="text-xl font-bold text-gray-800">Invoice Generator</h1>
-                    {user && <p className="text-sm text-gray-500 flex items-center gap-1"><User size={12}/> {user.email}</p>}
+                        <h1 className="text-xl font-bold text-gray-800">Invoice Generator</h1>
+                        {user && <p className="text-sm text-gray-500 flex items-center gap-1"><User size={12}/> {user.email}</p>}
                     </div>
                     
                     <div className="flex flex-wrap items-center gap-2">
-                    {!user ? (
-                        <button onClick={handleLogin} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm">
-                        <LogIn size={16} /> Login to Save
+                        {!user ? (
+                            <button onClick={handleLogin} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm">
+                            <LogIn size={16} /> Login to Save
+                            </button>
+                        ) : (
+                            <>
+                            <button onClick={saveInvoiceData} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm">
+                                <Save size={16} /> {saveStatus || "Save Invoice"}
+                            </button>
+                            <button onClick={handleLogout} className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm transition-colors text-sm">
+                                <LogOut size={16} /> Logout
+                            </button>
+                            </>
+                        )}
+                        <div className="h-6 w-px bg-gray-300 mx-2"></div>
+                        <button onClick={handlePrint} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md transition-colors text-sm">
+                            <Printer size={16} /> Print PDF
                         </button>
-                    ) : (
-                        <>
-                        <button onClick={saveInvoiceData} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow-sm transition-colors text-sm">
-                            <Save size={16} /> {saveStatus || "Save Invoice"}
-                        </button>
-                        <button onClick={handleLogout} className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded shadow-sm transition-colors text-sm">
-                            <LogOut size={16} /> Logout
-                        </button>
-                        </>
-                    )}
-                    <div className="h-6 w-px bg-gray-300 mx-2"></div>
-                    <button onClick={handlePrint} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow-md transition-colors text-sm">
-                        <Printer size={16} /> Print PDF
-                    </button>
                     </div>
                 </div>
 
                 {/* Invoice Paper Sheet */}
                 <div className="max-w-[850px] mx-auto bg-white shadow-xl print:shadow-none p-8 print:p-0 text-sm md:text-base print:text-xs leading-tight">
                     
-                    {/* --- Header --- */}
+                    {/* Header */}
                     <div className="border-b-2 border-black pb-4 mb-4">
-                    <div className="flex justify-between items-start">
+                        <div className="flex justify-between items-start">
+                            <div className="w-1/2">
+                            <img src="https://imageview.replit.app/objects/uploads/d16ab63e-1d1e-4b8f-863c-67e66e4894fc" alt="Mechanical Temp Logo" className="max-w-[250px] h-auto object-contain mb-2" />
+                            </div>
+                            <div className="w-1/2 text-right text-sm">
+                            <p className="font-bold">23093 Telegraph Rd</p>
+                            <p>Southfield, MI 48033</p>
+                            <p><span className="font-bold">Phone:</span> 313-282-4758</p>
+                            <p><span className="font-bold">Email:</span> office@mechanicaltemp.com</p>
+                            <p><span className="font-bold">Web:</span> www.mechanicaltemp.com</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Job Details */}
+                    <div className="flex flex-wrap border border-black mb-4">
+                        <div className="w-1/4 p-2 border-r border-black">
+                            <label className="block font-bold text-xs mb-1">JOB #</label>
+                            <input type="text" value={jobNo} onChange={(e) => setJobNo(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                        <div className="w-1/4 p-2 border-r border-black">
+                            <label className="block font-bold text-xs mb-1">DATE</label>
+                            <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                        <div className="w-1/4 p-2 border-r border-black">
+                            <label className="block font-bold text-xs mb-1">WO #</label>
+                            <input type="text" value={woNo} onChange={(e) => setWoNo(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                        </div>
+                        <div className="w-full flex flex-wrap text-xs font-bold border-t border-black">
+                            <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.serviceCall} onChange={() => handleServiceTypeChange('serviceCall')} /> SERVICE CALL</label>
+                            <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.plannedMaintenance} onChange={() => handleServiceTypeChange('plannedMaintenance')} /> PLANNED MAINTENANCE</label>
+                            <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.afterHours} onChange={() => handleServiceTypeChange('afterHours')} /> AFTER HOURS EMERGENCY</label>
+                            <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.shopWork} onChange={() => handleServiceTypeChange('shopWork')} /> SHOP WORK</label>
+                            <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.regular} onChange={() => handleServiceTypeChange('regular')} /> REGULAR</label>
+                            <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.warranty} onChange={() => handleServiceTypeChange('warranty')} /> WARRANTY</label>
+                        </div>
+                    </div>
+
+                    {/* Customer & Service Info */}
+                    <div className="flex flex-wrap border border-black mb-4">
+                        <div className="w-1/2 border-r border-black">
+                            <div className="p-2 border-b border-black">
+                            <label className="font-bold text-xs block">CUSTOMER</label>
+                            <input name="name" value={customerInfo.name} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                            </div>
+                            <div className="p-2 border-b border-black">
+                            <label className="font-bold text-xs block">BILLING ADDRESS</label>
+                            <textarea name="billingAddress" rows={2} value={customerInfo.billingAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
+                            </div>
+                            <div className="flex border-b border-black">
+                            <div className="w-1/2 p-2 border-r border-black">
+                                <label className="font-bold text-xs block">PHONE</label>
+                                <input name="phone" value={customerInfo.phone} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                            </div>
+                            <div className="w-1/2 p-2">
+                                <label className="font-bold text-xs block">CELL</label>
+                                <input name="cell" value={customerInfo.cell} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                            </div>
+                            </div>
+                            <div className="p-2">
+                            <label className="font-bold text-xs block">EMAIL</label>
+                            <input name="email" value={customerInfo.email} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                            </div>
+                        </div>
                         <div className="w-1/2">
-                        <img src="https://imageview.replit.app/objects/uploads/d16ab63e-1d1e-4b8f-863c-67e66e4894fc" alt="Mechanical Temp Logo" className="max-w-[250px] h-auto object-contain mb-2" />
+                            <div className="p-2 border-b border-black h-24">
+                            <label className="font-bold text-xs block">COMPLAINT</label>
+                            <textarea name="complaint" value={customerInfo.complaint} onChange={handleCustomerChange} className="w-full h-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
+                            </div>
+                            <div className="p-2 border-b border-black">
+                            <label className="font-bold text-xs block">WORK ORDERED BY</label>
+                            <input name="orderedBy" value={customerInfo.orderedBy} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                            </div>
+                            <div className="p-2 border-b border-black">
+                            <label className="font-bold text-xs block">ADDRESS OF UNIT</label>
+                            <input name="unitAddress" value={customerInfo.unitAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                            </div>
+                            <div className="flex">
+                            <div className="w-2/3 p-2 border-r border-black">
+                                <label className="font-bold text-xs block">PHONE</label>
+                                <input name="unitPhone" value={customerInfo.unitPhone} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
+                            </div>
+                            <div className="w-1/3 p-2 flex flex-col items-center justify-center">
+                                <label className="font-bold text-xs block text-center mb-1">SERVICE AGMT</label>
+                                <input type="checkbox" name="hasServiceAgreement" checked={customerInfo.hasServiceAgreement} onChange={handleCustomerChange} className="w-5 h-5" />
+                            </div>
+                            </div>
                         </div>
-                        <div className="w-1/2 text-right text-sm">
-                        <p className="font-bold">23093 Telegraph Rd</p>
-                        <p>Southfield, MI 48033</p>
-                        <p><span className="font-bold">Phone:</span> 313-282-4758</p>
-                        <p><span className="font-bold">Email:</span> office@mechanicaltemp.com</p>
-                        <p><span className="font-bold">Web:</span> www.mechanicaltemp.com</p>
-                        </div>
-                    </div>
                     </div>
 
-                    {/* --- Job Details & Checkboxes --- */}
-                    <div className="flex flex-wrap border border-black mb-4">
-                    <div className="w-1/4 p-2 border-r border-black">
-                        <label className="block font-bold text-xs mb-1">JOB #</label>
-                        <input type="text" value={jobNo} onChange={(e) => setJobNo(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                    </div>
-                    <div className="w-1/4 p-2 border-r border-black">
-                        <label className="block font-bold text-xs mb-1">DATE</label>
-                        <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                    </div>
-                    <div className="w-1/4 p-2 border-r border-black">
-                        <label className="block font-bold text-xs mb-1">WO #</label>
-                        <input type="text" value={woNo} onChange={(e) => setWoNo(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                    </div>
-                    <div className="w-full flex flex-wrap text-xs font-bold border-t border-black">
-                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.serviceCall} onChange={() => handleServiceTypeChange('serviceCall')} /> SERVICE CALL</label>
-                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.plannedMaintenance} onChange={() => handleServiceTypeChange('plannedMaintenance')} /> PLANNED MAINTENANCE</label>
-                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.afterHours} onChange={() => handleServiceTypeChange('afterHours')} /> AFTER HOURS EMERGENCY</label>
-                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.shopWork} onChange={() => handleServiceTypeChange('shopWork')} /> SHOP WORK</label>
-                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.regular} onChange={() => handleServiceTypeChange('regular')} /> REGULAR</label>
-                        <label className="w-1/3 p-2 flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={serviceType.warranty} onChange={() => handleServiceTypeChange('warranty')} /> WARRANTY</label>
-                    </div>
-                    </div>
-
-                    {/* --- Customer & Service Info --- */}
-                    <div className="flex flex-wrap border border-black mb-4">
-                    <div className="w-1/2 border-r border-black">
-                        <div className="p-2 border-b border-black">
-                        <label className="font-bold text-xs block">CUSTOMER</label>
-                        <input name="name" value={customerInfo.name} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                        </div>
-                        <div className="p-2 border-b border-black">
-                        <label className="font-bold text-xs block">BILLING ADDRESS</label>
-                        <textarea name="billingAddress" rows={2} value={customerInfo.billingAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
-                        </div>
-                        <div className="flex border-b border-black">
-                        <div className="w-1/2 p-2 border-r border-black">
-                            <label className="font-bold text-xs block">PHONE</label>
-                            <input name="phone" value={customerInfo.phone} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                        </div>
-                        <div className="w-1/2 p-2">
-                            <label className="font-bold text-xs block">CELL</label>
-                            <input name="cell" value={customerInfo.cell} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                        </div>
-                        </div>
-                        <div className="p-2">
-                        <label className="font-bold text-xs block">EMAIL</label>
-                        <input name="email" value={customerInfo.email} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                        </div>
-                    </div>
-                    <div className="w-1/2">
-                        <div className="p-2 border-b border-black h-24">
-                        <label className="font-bold text-xs block">COMPLAINT</label>
-                        <textarea name="complaint" value={customerInfo.complaint} onChange={handleCustomerChange} className="w-full h-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
-                        </div>
-                        <div className="p-2 border-b border-black">
-                        <label className="font-bold text-xs block">WORK ORDERED BY</label>
-                        <input name="orderedBy" value={customerInfo.orderedBy} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                        </div>
-                        <div className="p-2 border-b border-black">
-                        <label className="font-bold text-xs block">ADDRESS OF UNIT</label>
-                        <input name="unitAddress" value={customerInfo.unitAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                        </div>
-                        <div className="flex">
-                        <div className="w-2/3 p-2 border-r border-black">
-                            <label className="font-bold text-xs block">PHONE</label>
-                            <input name="unitPhone" value={customerInfo.unitPhone} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
-                        </div>
-                        <div className="w-1/3 p-2 flex flex-col items-center justify-center">
-                            <label className="font-bold text-xs block text-center mb-1">SERVICE AGMT</label>
-                            <input type="checkbox" name="hasServiceAgreement" checked={customerInfo.hasServiceAgreement} onChange={handleCustomerChange} className="w-5 h-5" />
-                        </div>
-                        </div>
-                    </div>
-                    </div>
-
-                    {/* --- Unit Info Table --- */}
+                    {/* Unit Info (Dynamic List) */}
                     <div className="mb-4 border border-black">
-                    <div className="flex bg-gray-200 text-xs font-bold border-b border-black print:bg-gray-100">
-                        <div className="w-1/6 p-1 border-r border-black">UNIT #</div>
-                        <div className="w-1/6 p-1 border-r border-black">MAKE</div>
-                        <div className="w-1/6 p-1 border-r border-black">MODEL</div>
-                        <div className="w-1/4 p-1 border-r border-black">SERIAL</div>
-                        <div className="w-1/4 p-1">LOCATION OF UNIT</div>
-                    </div>
-                    <div className="flex text-sm">
-                        <input name="unitNo" value={unitInfo.unitNo} onChange={handleUnitChange} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-                        <input name="make" value={unitInfo.make} onChange={handleUnitChange} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-                        <input name="model" value={unitInfo.model} onChange={handleUnitChange} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-                        <input name="serial" value={unitInfo.serial} onChange={handleUnitChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-                        <input name="location" value={unitInfo.location} onChange={handleUnitChange} className="w-1/4 p-1 bg-blue-50 print:bg-transparent outline-none" />
-                    </div>
+                        <div className="flex bg-gray-200 text-xs font-bold border-b border-black print:bg-gray-100">
+                            <div className="w-1/6 p-1 border-r border-black">UNIT #</div>
+                            <div className="w-1/6 p-1 border-r border-black">MAKE</div>
+                            <div className="w-1/6 p-1 border-r border-black">MODEL</div>
+                            <div className="w-1/4 p-1 border-r border-black">SERIAL</div>
+                            <div className="w-1/4 p-1">LOCATION OF UNIT</div>
+                            <div className="w-8 no-print"></div>
+                        </div>
+                        {units.map((unit, index) => (
+                            <div key={unit.id} className={`flex text-sm ${index > 0 ? 'border-t border-black' : ''} relative group`}>
+                                <input value={unit.unitNo} onChange={(e) => handleUnitChange(unit.id, 'unitNo', e.target.value)} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                                <input value={unit.make} onChange={(e) => handleUnitChange(unit.id, 'make', e.target.value)} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                                <input value={unit.model} onChange={(e) => handleUnitChange(unit.id, 'model', e.target.value)} className="w-1/6 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                                <input value={unit.serial} onChange={(e) => handleUnitChange(unit.id, 'serial', e.target.value)} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                                <input value={unit.location} onChange={(e) => handleUnitChange(unit.id, 'location', e.target.value)} className="w-1/4 p-1 bg-blue-50 print:bg-transparent outline-none" />
+                                <div className="w-8 flex items-center justify-center no-print border-l border-black bg-white">
+                                    <button onClick={() => removeUnit(unit.id)} className="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>
+                                </div>
+                            </div>
+                        ))}
+                        <button onClick={addUnit} className="w-full py-1 text-center text-blue-600 text-xs font-bold hover:bg-blue-50 no-print border-t border-black border-dashed">+ Add Unit</button>
                     </div>
 
-                    {/* --- Technician Info Table --- */}
+                    {/* Technician Info (Dynamic List) */}
                     <div className="mb-4 border border-black">
-                    <div className="flex bg-gray-200 text-xs font-bold border-b border-black print:bg-gray-100">
-                        <div className="w-1/4 p-1 border-r border-black">TECHNICIAN</div>
-                        <div className="w-1/4 p-1 border-r border-black">EN ROUTE</div>
-                        <div className="w-1/4 p-1 border-r border-black">CLOCK IN</div>
-                        <div className="w-1/4 p-1">CLOCK OUT</div>
-                    </div>
-                    <div className="flex text-sm">
-                        <input name="name" value={techInfo.name} onChange={handleTechChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-                        <input name="enRoute" type="time" value={techInfo.enRoute} onChange={handleTechChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-                        <input name="clockIn" type="time" value={techInfo.clockIn} onChange={handleTechChange} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-                        <input name="clockOut" type="time" value={techInfo.clockOut} onChange={handleTechChange} className="w-1/4 p-1 bg-blue-50 print:bg-transparent outline-none" />
-                    </div>
+                        <div className="flex bg-gray-200 text-xs font-bold border-b border-black print:bg-gray-100">
+                            <div className="w-1/4 p-1 border-r border-black">TECHNICIAN</div>
+                            <div className="w-1/4 p-1 border-r border-black">EN ROUTE</div>
+                            <div className="w-1/4 p-1 border-r border-black">CLOCK IN</div>
+                            <div className="w-1/4 p-1">CLOCK OUT</div>
+                            <div className="w-8 no-print"></div>
+                        </div>
+                        {technicians.map((tech, index) => (
+                            <div key={tech.id} className={`flex text-sm ${index > 0 ? 'border-t border-black' : ''} relative group`}>
+                                <input value={tech.name} onChange={(e) => handleTechChange(tech.id, 'name', e.target.value)} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                                <input type="time" value={tech.enRoute} onChange={(e) => handleTechChange(tech.id, 'enRoute', e.target.value)} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                                <input type="time" value={tech.clockIn} onChange={(e) => handleTechChange(tech.id, 'clockIn', e.target.value)} className="w-1/4 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                                <input type="time" value={tech.clockOut} onChange={(e) => handleTechChange(tech.id, 'clockOut', e.target.value)} className="w-1/4 p-1 bg-blue-50 print:bg-transparent outline-none" />
+                                <div className="w-8 flex items-center justify-center no-print border-l border-black bg-white">
+                                    <button onClick={() => removeTech(tech.id)} className="text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>
+                                </div>
+                            </div>
+                        ))}
+                        <button onClick={addTech} className="w-full py-1 text-center text-blue-600 text-xs font-bold hover:bg-blue-50 no-print border-t border-black border-dashed">+ Add Technician</button>
                     </div>
 
-                    {/* --- Description of Work --- */}
+                    {/* Description of Work */}
                     <div className="mb-4 border border-black">
-                    <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">DESCRIPTION OF WORK</div>
-                    <textarea value={descriptionOfWork} onChange={(e) => setDescriptionOfWork(e.target.value)} className="w-full h-32 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
+                        <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">DESCRIPTION OF WORK</div>
+                        <textarea value={descriptionOfWork} onChange={(e) => setDescriptionOfWork(e.target.value)} className="w-full h-32 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
                     </div>
 
-                    {/* --- Materials / Items --- */}
+                    {/* Materials */}
                     <div className="mb-4">
-                    <div className="flex bg-gray-200 text-xs font-bold border border-black print:bg-gray-100">
-                        <div className="w-16 p-1 border-r border-black text-center">QTY</div>
-                        <div className="flex-1 p-1 border-r border-black">DESCRIPTION</div>
-                        <div className="w-24 p-1 text-right border-r border-black">PRICE</div>
-                        <div className="w-24 p-1 text-right">AMOUNT</div>
-                        <div className="w-8 no-print"></div>
-                    </div>
-                    {items.map((item) => (
-                        <div key={item.id} className="flex border-b border-l border-r border-black text-sm">
-                        <input type="number" value={item.qty} onChange={(e) => handleItemChange(item.id, 'qty', parseFloat(e.target.value) || 0)} className="w-16 p-1 border-r border-black text-center bg-blue-50 print:bg-transparent outline-none" />
-                        <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="flex-1 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
-                        <input type="number" value={item.price} onChange={(e) => handleItemChange(item.id, 'price', parseFloat(e.target.value) || 0)} className="w-24 p-1 border-r border-black text-right bg-blue-50 print:bg-transparent outline-none" />
-                        <div className="w-24 p-1 text-right bg-gray-50 print:bg-transparent">{ (item.qty * item.price).toFixed(2) }</div>
-                        <div className="w-8 flex items-center justify-center no-print">
-                            <button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-700"><Trash2 size={14} /></button>
+                        <div className="flex bg-gray-200 text-xs font-bold border border-black print:bg-gray-100">
+                            <div className="w-16 p-1 border-r border-black text-center">QTY</div>
+                            <div className="flex-1 p-1 border-r border-black">DESCRIPTION</div>
+                            <div className="w-24 p-1 text-right border-r border-black">PRICE</div>
+                            <div className="w-24 p-1 text-right">AMOUNT</div>
+                            <div className="w-8 no-print"></div>
                         </div>
-                        </div>
-                    ))}
-                    <button onClick={addItem} className="mt-2 flex items-center gap-1 text-blue-600 text-xs font-bold hover:underline no-print"><Plus size={14} /> Add Item</button>
+                        {items.map((item) => (
+                            <div key={item.id} className="flex border-b border-l border-r border-black text-sm">
+                            <input type="number" value={item.qty} onChange={(e) => handleItemChange(item.id, 'qty', parseFloat(e.target.value) || 0)} className="w-16 p-1 border-r border-black text-center bg-blue-50 print:bg-transparent outline-none" />
+                            <input type="text" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} className="flex-1 p-1 border-r border-black bg-blue-50 print:bg-transparent outline-none" />
+                            <input type="number" value={item.price} onChange={(e) => handleItemChange(item.id, 'price', parseFloat(e.target.value) || 0)} className="w-24 p-1 border-r border-black text-right bg-blue-50 print:bg-transparent outline-none" />
+                            <div className="w-24 p-1 text-right bg-gray-50 print:bg-transparent">{ (item.qty * item.price).toFixed(2) }</div>
+                            <div className="w-8 flex items-center justify-center no-print">
+                                <button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-700"><Trash2 size={14} /></button>
+                            </div>
+                            </div>
+                        ))}
+                        <button onClick={addItem} className="mt-2 flex items-center gap-1 text-blue-600 text-xs font-bold hover:underline no-print"><Plus size={14} /> Add Item</button>
                     </div>
 
-                    {/* --- Totals --- */}
-                    <div className="flex mb-4 gap-4">
-                    <div className="flex-1 border border-black flex flex-col">
-                        <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">RECOMMENDATIONS</div>
-                        <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full flex-1 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
-                    </div>
-                    <div className="w-64 border border-black text-sm">
-                        <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">SUBTOTAL</span><span>${subtotal.toFixed(2)}</span></div>
-                        <div className="flex justify-between p-2 border-b border-black bg-gray-50 print:bg-transparent"><span className="font-bold">TAX RATE</span><input type="number" step="0.01" value={taxRate} onChange={(e) => setTaxRate(parseFloat(e.target.value))} className="w-12 text-right bg-blue-50 print:bg-transparent outline-none" /></div>
-                        <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">TAX</span><span>${tax.toFixed(2)}</span></div>
-                        <div className="flex justify-between p-2 font-bold bg-gray-200 print:bg-gray-100"><span>TOTAL</span><span>${total.toFixed(2)}</span></div>
-                    </div>
+                    {/* Totals */}
+                    <div className="flex mb-4 gap-4 print-break-inside-avoid">
+                        <div className="flex-1 border border-black flex flex-col">
+                            <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">RECOMMENDATIONS</div>
+                            <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full flex-1 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
+                        </div>
+                        <div className="w-64 border border-black text-sm">
+                            <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">SUBTOTAL</span><span>${subtotal.toFixed(2)}</span></div>
+                            <div className="flex justify-between p-2 border-b border-black bg-gray-50 print:bg-transparent"><span className="font-bold">TAX RATE</span><input type="number" step="0.01" value={taxRate} onChange={(e) => setTaxRate(parseFloat(e.target.value))} className="w-12 text-right bg-blue-50 print:bg-transparent outline-none" /></div>
+                            <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">TAX</span><span>${tax.toFixed(2)}</span></div>
+                            <div className="flex justify-between p-2 font-bold bg-gray-200 print:bg-gray-100"><span>TOTAL</span><span>${total.toFixed(2)}</span></div>
+                        </div>
                     </div>
 
-                    {/* --- Footer --- */}
+                    {/* --- ATTACHMENTS SECTION --- */}
+                    <div className="mb-6 border border-black p-2 print-break-inside-avoid">
+                        <div className="flex justify-between items-center mb-2">
+                            <div className="text-xs font-bold">PHOTOS & ATTACHMENTS</div>
+                            <div className="no-print">
+                                <input 
+                                    type="file" 
+                                    multiple 
+                                    accept="image/*,application/pdf" 
+                                    onChange={handleFileSelect} 
+                                    ref={fileInputRef}
+                                    className="hidden"
+                                    id="file-upload"
+                                />
+                                <label htmlFor="file-upload" className="flex items-center gap-1 text-blue-600 text-xs font-bold hover:underline cursor-pointer">
+                                    <Paperclip size={14} /> Add Photo/PDF
+                                </label>
+                            </div>
+                        </div>
+                        
+                        {attachments.length === 0 ? (
+                            <div className="text-xs text-gray-400 italic p-2 text-center border-t border-gray-100">
+                                No attachments (Upload photos to include them in the printout)
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 gap-4 mt-2">
+                                {attachments.map(att => (
+                                    <div key={att.id} className="relative group border border-gray-200 p-1">
+                                        {att.type.startsWith('image/') ? (
+                                            <img src={att.data} alt="Attachment" className="w-full h-48 object-contain" />
+                                        ) : (
+                                            <div className="w-full h-48 flex flex-col items-center justify-center bg-gray-50 text-gray-500">
+                                                <FileText size={32} />
+                                                <span className="text-xs mt-2 text-center break-all px-2">{att.name}</span>
+                                                <span className="text-[10px] text-gray-400">(PDF Document - Link only)</span>
+                                            </div>
+                                        )}
+                                        <button 
+                                            onClick={() => removeAttachment(att.id)}
+                                            className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity no-print"
+                                            title="Remove attachment"
+                                        >
+                                            <Trash2 size={12} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div className="mt-2 text-[9px] text-gray-400 no-print">
+                            * Note: Attachments are included in the PDF Print, but are not saved to the cloud database to save space.
+                        </div>
+                    </div>
+
+                    {/* Footer */}
                     <div className="text-[10px] leading-tight text-justify text-gray-600 mb-6">
-                    <p className="mb-2 font-bold">Limited Warranty in Fine Print</p>
-                    <p>Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any materials or services installed previously or after services covered on this invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided, as well as, for services provided as a courtesy to the client (not charged or paid for). Mechanical Temp is not responsible for any failures or damages due to Acts of God, other individuals, or other companies performing work on the service area. Any services performed on service area and equipment, provided by individuals and companies other than Mechanical Temp will result in voiding all Warranties outlined on this invoice. Thank you for your confidence in Mechanical Temp.</p>
+                        <p className="mb-2 font-bold">Limited Warranty in Fine Print</p>
+                        <p>Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any materials or services installed previously or after services covered on this invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided, as well as, for services provided as a courtesy to the client (not charged or paid for). Mechanical Temp is not responsible for any failures or damages due to Acts of God, other individuals, or other companies performing work on the service area. Any services performed on service area and equipment, provided by individuals and companies other than Mechanical Temp will result in voiding all Warranties outlined on this invoice. Thank you for your confidence in Mechanical Temp.</p>
                     </div>
 
-                    {/* --- Acknowledgment --- */}
-                    <div className="border border-black p-2 flex items-end gap-4">
-                    <div className="flex-1 text-[10px] leading-tight">
-                        <p className="font-bold mb-1">WORK ACKNOWLEDGMENT</p>
-                        <p>I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense. Any damage from said removal shall not be the responsibility of seller.</p>
-                    </div>
-                    <div className="w-1/3 border-t border-black pt-1">
-                        <div className="text-xs font-bold mb-8">PRINT NAME</div>
-                        <div className="text-xs font-bold border-t border-black pt-1">SIGNATURE</div>
-                    </div>
+                    {/* Acknowledgment */}
+                    <div className="border border-black p-2 flex items-end gap-4 print-break-inside-avoid">
+                        <div className="flex-1 text-[10px] leading-tight">
+                            <p className="font-bold mb-1">WORK ACKNOWLEDGMENT</p>
+                            <p>I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense. Any damage from said removal shall not be the responsibility of seller.</p>
+                        </div>
+                        <div className="w-1/3 border-t border-black pt-1">
+                            <div className="text-xs font-bold mb-8">PRINT NAME</div>
+                            <div className="text-xs font-bold border-t border-black pt-1">SIGNATURE</div>
+                        </div>
                     </div>
                 </div>
                 </div>
