@@ -522,18 +522,19 @@
                     </div>
                     )}
 
-                    {/* Row 3: Search Bar */}
-                    {user && customerDB.length > 0 && (
+                    {/* Row 3: Search Bar - ALWAYS VISIBLE IF LOGGED IN */}
+                    {user && (
                         <div className="relative w-full">
-                            <div className="flex items-center border border-gray-300 rounded-lg bg-gray-50 px-3 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent focus-within:bg-white transition-all">
+                            <div className={`flex items-center border border-gray-300 rounded-lg bg-gray-50 px-3 py-2 transition-all ${customerDB.length > 0 ? 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:bg-white' : 'opacity-70 cursor-not-allowed bg-gray-100'}`}>
                                 <Search size={18} className="text-gray-400 mr-3" />
                                 <input 
                                     type="text" 
-                                    placeholder="Search Database: Customer Name, Store Name, or Address..." 
+                                    placeholder={customerDB.length > 0 ? "Search Database: Customer Name, Store Name, or Address..." : "⚠️ Upload CSV Database to enable search"}
                                     className="w-full bg-transparent outline-none text-sm text-gray-700 placeholder-gray-400"
                                     value={searchQuery}
                                     onChange={(e) => { setSearchQuery(e.target.value); setShowResults(true); }}
                                     onFocus={() => setShowResults(true)}
+                                    disabled={customerDB.length === 0}
                                 />
                                 {searchQuery && (
                                     <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors">
