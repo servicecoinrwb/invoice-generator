@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice Generator</title>
+    <title>Invoice & Quote Generator</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -68,6 +68,7 @@
         const Search = (props) => <Icon d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" {...props} />;
         const User = (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 16} height={props.size || 16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
         const Loader = (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`animate-spin ${props.className}`}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>;
+        const FileCheck = (props) => <Icon d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z M10 13l2 2 4-4" {...props} />;
 
 
         // --- Firebase Config ---
@@ -101,7 +102,10 @@
             const [showResults, setShowResults] = useState(false);
             const csvInputRef = useRef(null);
 
-            // --- Invoice State ---
+            // --- Invoice/Quote Mode State ---
+            const [docType, setDocType] = useState('invoice'); // 'invoice' or 'quote'
+
+            // --- Invoice Data State ---
             const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().substr(0, 10));
             const [jobNo, setJobNo] = useState('');
             const [woNo, setWoNo] = useState('');
@@ -131,6 +135,21 @@
             const tax = subtotal * taxRate;
             const total = subtotal + tax;
 
+            // --- Text Constants based on Mode ---
+            const TEXTS = {
+                title: docType === 'invoice' ? 'SERVICE INVOICE' : 'PROPOSAL / QUOTE',
+                dateLabel: docType === 'invoice' ? 'DATE' : 'QUOTE DATE',
+                woLabel: docType === 'invoice' ? 'WO #' : 'REF #',
+                ackTitle: docType === 'invoice' ? 'WORK ACKNOWLEDGMENT' : 'PROPOSAL ACCEPTANCE',
+                ackBody: docType === 'invoice' 
+                    ? "I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense. Any damage from said removal shall not be the responsibility of seller."
+                    : "The above prices, specifications, and conditions are satisfactory and are hereby accepted. You are authorized to do the work as specified. Payment will be made as outlined above.",
+                warrantyTitle: docType === 'invoice' ? 'Limited Warranty in Fine Print' : 'Proposal Terms & Conditions',
+                warrantyBody: docType === 'invoice'
+                    ? "Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any materials or services installed previously or after services covered on this invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided, as well as, for services provided as a courtesy to the client (not charged or paid for). Mechanical Temp is not responsible for any failures or damages due to Acts of God, other individuals, or other companies performing work on the service area."
+                    : "This proposal may be withdrawn by us if not accepted within 30 days. All work to be completed in a workmanlike manner according to standard practices. Any alteration or deviation from above specifications involving extra costs will be executed only upon written orders, and will become an extra charge over and above the estimate. All agreements contingent upon strikes, accidents or delays beyond our control. Owner to carry fire, tornado and other necessary insurance."
+            };
+
             // --- Effects ---
             useEffect(() => {
                 const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -138,13 +157,13 @@
                     setLoading(false);
                     if (currentUser) {
                         await loadInvoiceData(currentUser.uid);
-                        await loadCustomerDB(currentUser.uid); // Load the DB on login
+                        await loadCustomerDB(currentUser.uid); 
                     }
                 });
                 return () => unsubscribe();
             }, []);
 
-            // --- Database Logic (SMART MERGE) ---
+            // --- Database Logic ---
             const handleCSVUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -155,8 +174,6 @@
                     skipEmptyLines: true,
                     complete: async (results) => {
                         const rawData = results.data;
-                        
-                        // 1. Convert CSV rows to clean objects
                         const newEntries = rawData.map(row => ({
                             name: row['Bill To'] || row['Customer'] || '',
                             locationName: row['Customer'] || '',
@@ -165,32 +182,22 @@
                             searchStr: `${row['Bill To']} ${row['Customer']} ${row['Service Address']} ${row['Job No.']}`.toLowerCase()
                         })).filter(item => item.name || item.address);
 
-                        // 2. MERGE Logic
-                        // Create a Map using JobNo (unique ID) or fallback to searchStr if JobNo is missing
-                        // We initialize it with the EXISTING database so we don't lose old records
                         const dbMap = new Map(customerDB.map(item => [item.jobNo || item.searchStr, item]));
-                        
-                        // 3. Add/Update with NEW entries
-                        // This overwrites duplicates (updates them) and adds new ones
                         newEntries.forEach(entry => {
                             const key = entry.jobNo || entry.searchStr;
                             dbMap.set(key, entry);
                         });
-
-                        // 4. Convert back to array
                         const mergedList = Array.from(dbMap.values());
 
-                        // 5. Save
                         setCustomerDB(mergedList);
                         await saveCustomerDB(mergedList, user.uid);
-                        alert(`Database merged successfully!\n\nTotal Records: ${mergedList.length}\nNew/Updated from this file: ${newEntries.length}`);
+                        alert(`Database merged successfully! Total Records: ${mergedList.length}`);
                     },
                     error: (err) => {
                         console.error("CSV Error:", err);
                         alert("Error reading CSV file.");
                     }
                 });
-                // Reset input so same file can be selected again if needed
                 if(csvInputRef.current) csvInputRef.current.value = '';
             };
 
@@ -200,7 +207,7 @@
                     await setDoc(docRef, { list: data, lastUpdated: new Date().toISOString() });
                 } catch (error) {
                     console.error("Error saving DB:", error);
-                    alert("Error saving database to cloud. List might be too large.");
+                    alert("Error saving database to cloud.");
                 }
             };
 
@@ -211,9 +218,7 @@
                     if (docSnap.exists()) {
                         setCustomerDB(docSnap.data().list || []);
                     }
-                } catch (error) {
-                    console.error("Error loading DB:", error);
-                }
+                } catch (error) { console.error("Error loading DB:", error); }
             };
 
             const handleSearchResultClick = (record) => {
@@ -240,6 +245,7 @@
                 if (!user) return;
                 setSaveStatus('Saving...');
                 const invoiceData = {
+                    docType, // Save document type
                     invoiceDate, jobNo, woNo, serviceType, customerInfo, 
                     units, technicians, descriptionOfWork, recommendations, items, taxRate,
                     lastUpdated: new Date().toISOString()
@@ -258,6 +264,7 @@
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
                         const data = docSnap.data();
+                        if (data.docType) setDocType(data.docType);
                         if (data.invoiceDate) setInvoiceDate(data.invoiceDate);
                         if (data.jobNo) setJobNo(data.jobNo);
                         if (data.woNo) setWoNo(data.woNo);
@@ -313,21 +320,39 @@
                 <div className="no-print max-w-[850px] mx-auto mb-6 bg-white p-4 rounded-lg shadow flex flex-col gap-4">
                     <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                         <div>
-                            <h1 className="text-xl font-bold text-gray-800">Invoice Generator</h1>
+                            <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                {docType === 'invoice' ? 'Invoice Generator' : 'Quote Generator'}
+                            </h1>
                             {user && <p className="text-xs text-gray-500 flex items-center gap-1"><User size={10}/> {user.email}</p>}
                         </div>
+
+                        {/* MODE SWITCHER */}
+                        <div className="flex bg-gray-100 p-1 rounded-lg">
+                            <button 
+                                onClick={() => setDocType('invoice')}
+                                className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${docType === 'invoice' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
+                            >
+                                INVOICE
+                            </button>
+                            <button 
+                                onClick={() => setDocType('quote')}
+                                className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${docType === 'quote' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
+                            >
+                                QUOTE
+                            </button>
+                        </div>
+
                         <div className="flex flex-wrap items-center gap-2">
                             {!user ? (
                                 <button onClick={handleLogin} className="flex items-center gap-2 bg-gray-800 text-white px-3 py-1.5 rounded text-xs"><LogIn size={14} /> Login</button>
                             ) : (
                                 <>
-                                    {/* Upload CSV Button */}
                                     <label className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded text-xs cursor-pointer transition-colors">
-                                        <UploadCloud size={14} /> Update Database (CSV)
+                                        <UploadCloud size={14} /> Update DB
                                         <input ref={csvInputRef} type="file" accept=".csv" onChange={handleCSVUpload} className="hidden" />
                                     </label>
                                     <button onClick={saveInvoiceData} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-xs transition-colors">
-                                        <Save size={14} /> {saveStatus || "Save Invoice"}
+                                        <Save size={14} /> {saveStatus || "Save"}
                                     </button>
                                     <button onClick={handleLogout} className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-xs transition-colors">
                                         <LogOut size={14} /> Logout
@@ -341,7 +366,7 @@
                         </div>
                     </div>
 
-                    {/* SEARCH BAR - Only shows if DB is loaded */}
+                    {/* SEARCH BAR */}
                     {user && customerDB.length > 0 && (
                         <div className="relative w-full">
                             <div className="flex items-center border border-gray-300 rounded bg-gray-50 px-2 focus-within:ring-2 focus-within:ring-blue-500">
@@ -359,12 +384,11 @@
                                 )}
                             </div>
                             
-                            {/* Dropdown Results */}
                             {showResults && searchQuery.length > 1 && (
                                 <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 shadow-lg rounded max-h-60 overflow-y-auto">
                                     {customerDB
                                         .filter(item => item.searchStr.includes(searchQuery.toLowerCase()))
-                                        .slice(0, 10) // Limit results for performance
+                                        .slice(0, 10)
                                         .map((item, idx) => (
                                             <div 
                                                 key={idx} 
@@ -375,30 +399,31 @@
                                                 <div className="text-xs text-gray-500">{item.address}</div>
                                             </div>
                                     ))}
-                                    {customerDB.filter(item => item.searchStr.includes(searchQuery.toLowerCase())).length === 0 && (
-                                        <div className="p-3 text-gray-400 text-sm text-center italic">No matches found</div>
-                                    )}
                                 </div>
                             )}
                         </div>
                     )}
                 </div>
 
-                {/* Invoice Paper Sheet */}
+                {/* Main Document Sheet */}
                 <div className="max-w-[850px] mx-auto bg-white shadow-xl print:shadow-none p-8 print:p-0 text-sm md:text-base print:text-xs leading-tight">
                     
                     {/* Header */}
                     <div className="border-b-2 border-black pb-4 mb-4">
                         <div className="flex justify-between items-start">
                             <div className="w-1/2">
-                            <img src="https://imageview.replit.app/objects/uploads/d16ab63e-1d1e-4b8f-863c-67e66e4894fc" alt="Mechanical Temp Logo" className="max-w-[250px] h-auto object-contain mb-2" />
+                                <img src="https://imageview.replit.app/objects/uploads/d16ab63e-1d1e-4b8f-863c-67e66e4894fc" alt="Mechanical Temp Logo" className="max-w-[250px] h-auto object-contain mb-2" />
+                                {/* DOCUMENT TYPE LABEL */}
+                                <div className="text-2xl font-black tracking-widest text-gray-800 mt-2 uppercase border-2 border-black inline-block px-2">
+                                    {TEXTS.title}
+                                </div>
                             </div>
                             <div className="w-1/2 text-right text-sm">
-                            <p className="font-bold">23093 Telegraph Rd</p>
-                            <p>Southfield, MI 48033</p>
-                            <p><span className="font-bold">Phone:</span> 313-282-4758</p>
-                            <p><span className="font-bold">Email:</span> office@mechanicaltemp.com</p>
-                            <p><span className="font-bold">Web:</span> www.mechanicaltemp.com</p>
+                                <p className="font-bold">23093 Telegraph Rd</p>
+                                <p>Southfield, MI 48033</p>
+                                <p><span className="font-bold">Phone:</span> 313-282-4758</p>
+                                <p><span className="font-bold">Email:</span> office@mechanicaltemp.com</p>
+                                <p><span className="font-bold">Web:</span> www.mechanicaltemp.com</p>
                             </div>
                         </div>
                     </div>
@@ -410,11 +435,11 @@
                             <input type="text" value={jobNo} onChange={(e) => setJobNo(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
                         </div>
                         <div className="w-1/4 p-2 border-r border-black">
-                            <label className="block font-bold text-xs mb-1">DATE</label>
+                            <label className="block font-bold text-xs mb-1 uppercase">{TEXTS.dateLabel}</label>
                             <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
                         </div>
                         <div className="w-1/4 p-2 border-r border-black">
-                            <label className="block font-bold text-xs mb-1">WO #</label>
+                            <label className="block font-bold text-xs mb-1 uppercase">{TEXTS.woLabel}</label>
                             <input type="text" value={woNo} onChange={(e) => setWoNo(e.target.value)} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none" />
                         </div>
                         <div className="w-full flex flex-wrap text-xs font-bold border-t border-black">
@@ -455,7 +480,7 @@
                         </div>
                         <div className="w-1/2">
                             <div className="p-2 border-b border-black h-24">
-                            <label className="font-bold text-xs block">COMPLAINT</label>
+                            <label className="font-bold text-xs block">COMPLAINT / REQUEST</label>
                             <textarea name="complaint" value={customerInfo.complaint} onChange={handleCustomerChange} className="w-full h-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
                             </div>
                             <div className="p-2 border-b border-black">
@@ -529,7 +554,9 @@
 
                     {/* Description */}
                     <div className="mb-4 border border-black">
-                        <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">DESCRIPTION OF WORK</div>
+                        <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">
+                            {docType === 'invoice' ? 'DESCRIPTION OF WORK' : 'SCOPE OF WORK / PROPOSAL DETAILS'}
+                        </div>
                         <textarea value={descriptionOfWork} onChange={(e) => setDescriptionOfWork(e.target.value)} className="w-full h-32 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
                     </div>
 
@@ -605,15 +632,15 @@
 
                     {/* Footer */}
                     <div className="text-[10px] leading-tight text-justify text-gray-600 mb-6">
-                        <p className="mb-2 font-bold">Limited Warranty in Fine Print</p>
-                        <p>Services listed are covered by a Limited Warranty from the Manufacturer and Mechanical Temp. The Limited Warranty covers defects in materials and workmanship for the duration outlined on the invoice. Mechanical Temp is not responsible for any materials or services installed previously or after services covered on this invoice. Mechanical Temp is not responsible for any structural or material damages that occur due to failures with materials/workmanship provided, as well as, for services provided as a courtesy to the client (not charged or paid for). Mechanical Temp is not responsible for any failures or damages due to Acts of God, other individuals, or other companies performing work on the service area. Any services performed on service area and equipment, provided by individuals and companies other than Mechanical Temp will result in voiding all Warranties outlined on this invoice. Thank you for your confidence in Mechanical Temp.</p>
+                        <p className="mb-2 font-bold">{TEXTS.warrantyTitle}</p>
+                        <p>{TEXTS.warrantyBody}</p>
                     </div>
 
                     {/* Acknowledgment */}
                     <div className="border border-black p-2 flex items-end gap-4 print-break-inside-avoid">
                         <div className="flex-1 text-[10px] leading-tight">
-                            <p className="font-bold mb-1">WORK ACKNOWLEDGMENT</p>
-                            <p>I have the authority to order the work outlined above which has been satisfactorily completed. I agree the seller retains title to equipment/materials furnished until final payment is made. If payment is not made as agreed, Seller can remove said equipment /materials at seller's expense. Any damage from said removal shall not be the responsibility of seller.</p>
+                            <p className="font-bold mb-1">{TEXTS.ackTitle}</p>
+                            <p>{TEXTS.ackBody}</p>
                         </div>
                         <div className="w-1/3 border-t border-black pt-1">
                             <div className="text-xs font-bold mb-8">PRINT NAME</div>
