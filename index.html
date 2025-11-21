@@ -635,7 +635,7 @@
                             </div>
                             <div className="p-2 border-b border-black">
                             <label className="font-bold text-xs block">BILLING ADDRESS</label>
-                            <textarea name="billingAddress" rows={2} value={customerInfo.billingAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none resize-y" />
+                            <textarea name="billingAddress" rows={2} value={customerInfo.billingAddress} onChange={handleCustomerChange} className="w-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
                             </div>
                             <div className="flex border-b border-black">
                             <div className="w-1/2 p-2 border-r border-black">
@@ -655,7 +655,7 @@
                         <div className="w-1/2">
                             <div className="p-2 border-b border-black h-24">
                             <label className="font-bold text-xs block">COMPLAINT / REQUEST</label>
-                            <textarea name="complaint" value={customerInfo.complaint} onChange={handleCustomerChange} className="w-full h-full bg-blue-50 px-1 print:bg-transparent outline-none resize-y" />
+                            <textarea name="complaint" value={customerInfo.complaint} onChange={handleCustomerChange} className="w-full h-full bg-blue-50 px-1 print:bg-transparent outline-none resize-none" />
                             </div>
                             <div className="p-2 border-b border-black">
                             <label className="font-bold text-xs block">WORK ORDERED BY</label>
@@ -731,7 +731,7 @@
                         <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">
                             {docType === 'invoice' ? 'DESCRIPTION OF WORK' : docType === 'quote' ? 'SCOPE OF WORK / PROPOSAL DETAILS' : 'SERVICE PERFORMED / FINDINGS'}
                         </div>
-                        <textarea value={descriptionOfWork} onChange={(e) => setDescriptionOfWork(e.target.value)} className="w-full h-32 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-y" />
+                        <textarea value={descriptionOfWork} onChange={(e) => setDescriptionOfWork(e.target.value)} className="w-full h-32 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
                     </div>
 
                     {/* Materials */}
@@ -770,7 +770,7 @@
                         <div className="flex mb-4 gap-4 print-break-inside-avoid">
                             <div className="flex-1 border border-black flex flex-col">
                                 <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">RECOMMENDATIONS</div>
-                                <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full flex-1 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-y" />
+                                <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full flex-1 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
                             </div>
                             <div className="w-64 border border-black text-sm">
                                 <div className="flex justify-between p-2 border-b border-black"><span className="font-bold">SUBTOTAL</span><span>${subtotal.toFixed(2)}</span></div>
@@ -785,7 +785,7 @@
                     {docType === 'work_order' && (
                         <div className="mb-4 border border-black flex flex-col print-break-inside-avoid">
                             <div className="bg-gray-200 text-xs font-bold p-1 border-b border-black print:bg-gray-100">RECOMMENDATIONS</div>
-                            <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full h-24 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-y" />
+                            <textarea value={recommendations} onChange={(e) => setRecommendations(e.target.value)} className="w-full h-24 p-2 text-sm bg-blue-50 print:bg-transparent outline-none resize-none" />
                         </div>
                     )}
 
